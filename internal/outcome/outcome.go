@@ -22,8 +22,9 @@ type Hit struct {
 type Outcome struct {
 	Subcommand string `json:"subcommand"`
 
-	// suggest
-	MatchFound bool  `json:"match_found,omitempty"`
+	// suggest. match_found has no omitempty: agents gate on it, so it must be
+	// present (false) even when the library is empty or nothing matched.
+	MatchFound bool  `json:"match_found"`
 	Hits       []Hit `json:"hits,omitempty"`
 
 	// run / verify

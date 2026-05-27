@@ -260,19 +260,27 @@ func cmdCapture(args []string) error {
 		return err
 	}
 
+	hasVerifier := r.Verification.Command != "" || len(r.Verification.ExpectedArtifacts) > 0
 	out := outcome.Outcome{
 		Subcommand: "capture", Captured: true, RecipeID: rid, Version: 1,
-		Message:                "recipe captured — verify it to establish trust",
 		RecommendedNextCommand: fmt.Sprintf("chant verify %s", rid),
+	}
+	if hasVerifier {
+		out.Message = "recipe captured — verify it to establish trust"
+	} else {
+		// Surface the no-verifier warning in the machine-readable contract too,
+		// so an agent knows it wrote an un-trustable recipe.
+		out.Message = "captured WITHOUT a verifier — reuse cannot be trusted until you add one"
+		out.SuggestedCommands = []string{fmt.Sprintf("chant capture --id %s --force --verifier \"<cmd>\" ...", rid)}
 	}
 	if *asJSON {
 		return emitJSON(out)
 	}
 	fmt.Printf("captured recipe %q (v1) at %s\n", rid, r.Dir())
-	if r.Verification.Command == "" && len(r.Verification.ExpectedArtifacts) == 0 {
-		fmt.Println("⚠ no verifier set — add one so reuse can be trusted (a hit without a verifier is just a guess).")
-	} else {
+	if hasVerifier {
 		fmt.Printf("→ run `chant verify %s` to confirm the verifier passes.\n", rid)
+	} else {
+		fmt.Println("⚠ no verifier set — add one so reuse can be trusted (a hit without a verifier is just a guess).")
 	}
 	return nil
 }

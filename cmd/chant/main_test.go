@@ -273,6 +273,42 @@ func TestCLI_FlagAfterPositional(t *testing.T) {
 	}
 }
 
+// TestCLI_JSONErrorEmitsBlockingError verifies the error path honors --json:
+// agents get a machine-readable blocking_error, not prose, and exit 1.
+func TestCLI_JSONErrorEmitsBlockingError(t *testing.T) {
+	bin := buildBinary(t)
+	repo := newRepo(t)
+	out, code := run(t, bin, repo, "verify", "no-such-recipe", "--json")
+	if code != 1 {
+		t.Errorf("expected exit 1 for unknown recipe, got %d\n%s", code, out)
+	}
+	var e struct {
+		BlockingError bool   `json:"blocking_error"`
+		Message       string `json:"message"`
+		Subcommand    string `json:"subcommand"`
+	}
+	if err := json.Unmarshal([]byte(out), &e); err != nil {
+		t.Fatalf("error path did not emit JSON under --json: %v\n%s", err, out)
+	}
+	if !e.BlockingError || e.Subcommand != "verify" {
+		t.Errorf("unexpected error JSON: %+v\n%s", e, out)
+	}
+}
+
+// TestCLI_SuggestEmptyLibraryMatchFound verifies match_found is always present
+// (false), even with no recipes, so agents can gate on it unconditionally.
+func TestCLI_SuggestEmptyLibraryMatchFound(t *testing.T) {
+	bin := buildBinary(t)
+	repo := newRepo(t)
+	out, code := run(t, bin, repo, "suggest", "--task", "anything at all", "--json")
+	if code != 0 {
+		t.Fatalf("suggest exit %d:\n%s", code, out)
+	}
+	if !strings.Contains(out, `"match_found"`) {
+		t.Errorf("match_found missing from empty-library suggest --json:\n%s", out)
+	}
+}
+
 func TestCLI_UnknownCommandExit2(t *testing.T) {
 	bin := buildBinary(t)
 	repo := newRepo(t)

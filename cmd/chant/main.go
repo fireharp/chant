@@ -64,9 +64,30 @@ func main() {
 		os.Exit(2)
 	}
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "chant: %v\n", err)
+		// Honor the JSON contract on the error path too: agents asked for
+		// --json should get a machine-readable blocking_error, not prose.
+		if hasFlag(args, "json") {
+			b, _ := json.MarshalIndent(map[string]any{
+				"subcommand":     cmd,
+				"blocking_error": true,
+				"message":        err.Error(),
+			}, "", "  ")
+			fmt.Println(string(b))
+		} else {
+			fmt.Fprintf(os.Stderr, "chant: %v\n", err)
+		}
 		os.Exit(1)
 	}
+}
+
+// hasFlag reports whether a --name (or -name) flag appears anywhere in args.
+func hasFlag(args []string, name string) bool {
+	for _, a := range args {
+		if a == "--"+name || a == "-"+name {
+			return true
+		}
+	}
+	return false
 }
 
 func usage() {
