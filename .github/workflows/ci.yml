@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: gofmt
+        run: |
+          unformatted="$(gofmt -l cmd internal)"
+          if [ -n "$unformatted" ]; then
+            echo "These files need gofmt:" >&2
+            echo "$unformatted" >&2
+            exit 1
+          fi
+
+      - name: vet
+        run: go vet ./...
+
+      - name: test
+        run: go test ./... -count=1
+
+      - name: build
+        run: go build -o bin/chant ./cmd/chant
+
+      - name: bench (validate the recipe engine)
+        run: ./bin/chant bench
+
+  coherence:
+    # Dogfood the sibling harness: flag repo drift on PRs. Non-blocking — drift
+    # is informational here, not a merge gate.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install coherence
+        run: curl -fsSL https://github.com/fireharp/coherence/releases/latest/download/install.sh | sh
+      - name: Review repo drift
+        run: ~/.local/bin/coherence review --base=origin/master --worktree --json

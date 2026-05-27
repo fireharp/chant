@@ -1,0 +1,62 @@
+name: Release Please
+
+on:
+  push:
+    branches:
+      - master
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      - id: release
+        uses: googleapis/release-please-action@v5
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+      - name: Checkout release tag
+        if: ${{ steps.release.outputs.release_created == 'true' }}
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.release.outputs.tag_name }}
+          fetch-depth: 0
+
+      - name: Set up Go
+        if: ${{ steps.release.outputs.release_created == 'true' }}
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build release assets
+        if: ${{ steps.release.outputs.release_created == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
+            os="${target%/*}"
+            arch="${target#*/}"
+            outdir="dist/chant_${os}_${arch}"
+
+            mkdir -p "$outdir"
+            GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 \
+              go build -trimpath -ldflags="-s -w -X main.version=${{ steps.release.outputs.tag_name }}" -o "$outdir/chant" ./cmd/chant
+            tar -C "$outdir" -czf "dist/chant_${os}_${arch}.tar.gz" chant
+          done
+
+          (cd dist && shasum -a 256 chant_*.tar.gz > checksums.txt)
+
+      - name: Upload release assets
+        if: ${{ steps.release.outputs.release_created == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.release.outputs.tag_name }}
+        run: |
+          gh release upload "$TAG" dist/chant_*.tar.gz dist/checksums.txt scripts/install.sh --clobber
