@@ -13,6 +13,7 @@ import (
 	"github.com/fireharp/chant/internal/config"
 	"github.com/fireharp/chant/internal/outcome"
 	"github.com/fireharp/chant/internal/recipe"
+	"github.com/fireharp/chant/internal/registry"
 	"github.com/fireharp/chant/internal/retrieve"
 	"github.com/fireharp/chant/internal/runner"
 	"github.com/fireharp/chant/internal/status"
@@ -20,9 +21,18 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// reuseCommand is the verifier-first reuse hint surfaced for a hit.
+// reuseCommand is the verifier-first reuse hint surfaced for a local hit.
 func reuseCommand(id string) string {
 	return fmt.Sprintf("chant verify %s   # run + verify before trusting", id)
+}
+
+// importCommand is the reuse hint for a FOREIGN hit (spec §6): a foreign
+// enchantment is the most suspect kind of hit, so reuse is import-then-verify,
+// never trust-on-discovery. `chant import` only copies the recipe locally; the
+// user/agent then runs `chant verify`, which re-runs the verifier in the local
+// context.
+func importCommand(ref string) string {
+	return fmt.Sprintf("chant import %s   # copy locally, then `chant verify` before trusting", ref)
 }
 
 // parseFlags parses args allowing flags and positionals to be interspersed.
@@ -70,6 +80,7 @@ func cmdSuggest(args []string) error {
 	task := fs.String("task", "", "natural-language task description")
 	files := fs.String("files", "", "comma-separated input file names/paths")
 	columns := fs.String("columns", "", "comma-separated available column names")
+	global := fs.Bool("global", false, "also search the per-machine registry for foreign enchantments")
 	asJSON := fs.Bool("json", false, "emit JSON outcome contract")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -89,9 +100,23 @@ func cmdSuggest(args []string) error {
 	matches := retrieve.Suggest(recs, q, s.Config.Retrieval)
 	hits := toHits(matches)
 
+	// Cross-package discovery (spec §6): when --global is passed, also search
+	// the registry and append FOREIGN hits — enchantments whose recipe_path is
+	// outside the current repo. Local hits still rank exactly as today; foreign
+	// hits are appended after, annotated with origin + scope, and carry an
+	// import-then-verify reuse_command (NOT trust-on-discovery). A registry that
+	// is missing/unreadable degrades gracefully to "no foreign hits".
+	if *global {
+		hits = append(hits, foreignHits(s, q)...)
+	}
+
 	out := outcome.Outcome{Subcommand: "suggest", MatchFound: len(hits) > 0, Hits: hits}
 	if len(hits) > 0 {
-		out.RecommendedNextCommand = reuseCommand(hits[0].ID)
+		if hits[0].Global {
+			out.RecommendedNextCommand = importCommand(firstRef(hits[0]))
+		} else {
+			out.RecommendedNextCommand = reuseCommand(hits[0].ID)
+		}
 	} else {
 		out.RecommendedNextCommand = "no recipe matched — solve the task, then `chant capture` it"
 	}
@@ -109,10 +134,81 @@ func cmdSuggest(args []string) error {
 		if h.VerifierExists {
 			ver = "verifier available"
 		}
-		fmt.Printf("  • %-28s v%d  confidence %.2f  [%s]\n", h.ID, h.Version, h.Confidence, ver)
-		fmt.Printf("      reuse: %s\n", h.ReuseCommand)
+		if h.Global {
+			fmt.Printf("  • %-28s v%d  confidence %.2f  [%s] (foreign: %s, scope %s)\n",
+				h.ID, h.Version, h.Confidence, ver, h.Origin, h.Scope)
+			fmt.Printf("      reuse: %s\n", h.ReuseCommand)
+		} else {
+			fmt.Printf("  • %-28s v%d  confidence %.2f  [%s]\n", h.ID, h.Version, h.Confidence, ver)
+			fmt.Printf("      reuse: %s\n", h.ReuseCommand)
+		}
 	}
 	return nil
+}
+
+// firstRef picks the import reference for a foreign hit: the spell_hash when
+// present (the portable identity), else the id.
+func firstRef(h outcome.Hit) string {
+	if h.SpellHash != "" {
+		return h.SpellHash
+	}
+	return h.ID
+}
+
+// foreignHits searches the per-machine registry and returns hits for foreign
+// enchantments — those whose recipe_path lives outside the current repo. Local
+// recipes are excluded so `suggest --global` adds discovery without duplicating
+// the local results already ranked above. A missing/unreadable registry yields
+// no foreign hits (never an error: discovery is best-effort).
+func foreignHits(s *store.Store, q retrieve.Query) []outcome.Hit {
+	reg, err := registry.Load(registry.DefaultPath())
+	if err != nil {
+		return nil
+	}
+	repoRoot, _ := filepath.Abs(s.Root)
+	var hits []outcome.Hit
+	for _, res := range reg.Search(q, s.Config.Retrieval) {
+		e := res.Entry
+		// Skip entries that belong to this repo: they are (or will be) local
+		// hits already, and importing them onto themselves is meaningless.
+		if isInsideRepo(e.RecipePath, repoRoot) {
+			continue
+		}
+		ref := e.SpellHash
+		if ref == "" {
+			ref = e.ID
+		}
+		hits = append(hits, outcome.Hit{
+			ID:             e.ID,
+			Version:        e.Version,
+			Description:    e.Description,
+			Confidence:     round2(res.Score),
+			VerifierExists: e.HasVerifier,
+			Reasons:        []string{"foreign enchantment from registry — import then verify before trusting"},
+			ReuseCommand:   importCommand(ref),
+			Global:         true,
+			Origin:         e.Origin,
+			Scope:          e.Scope,
+			SpellHash:      e.SpellHash,
+		})
+	}
+	return hits
+}
+
+// isInsideRepo reports whether path is within repoRoot (or equal to it).
+func isInsideRepo(path, repoRoot string) bool {
+	if path == "" || repoRoot == "" {
+		return false
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		abs = path
+	}
+	rel, err := filepath.Rel(repoRoot, abs)
+	if err != nil {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 // ---- capture ----
@@ -653,6 +749,7 @@ func cmdInvalidate(args []string) error {
 func cmdIndex(args []string) error {
 	fs := flag.NewFlagSet("index", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "emit JSON")
+	noRegistry := fs.Bool("no-registry", false, "skip upserting into the per-machine registry")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -664,11 +761,204 @@ func cmdIndex(args []string) error {
 	if err != nil {
 		return err
 	}
+
+	// Cross-package discovery (spec §6): also upsert each local recipe that has
+	// a spell_hash into the per-machine registry, keyed by spell_hash, carrying
+	// an ABSOLUTE recipe_path so `chant import` can copy it later. This must
+	// never crash the index command — a non-writable registry degrades to a
+	// warning (backward compatible: indexing the local library still succeeds).
+	upserted := 0
+	registryWarn := ""
+	if !*noRegistry {
+		upserted, registryWarn = upsertLocalIntoRegistry(s)
+	}
+
 	if *asJSON {
-		return emitJSON(idx)
+		return emitJSON(map[string]any{
+			"subcommand":        "index",
+			"count":             idx.Count,
+			"registry_upserted": upserted,
+			"registry_warning":  registryWarn,
+			"index_path":        s.StatePath("index.json"),
+		})
 	}
 	fmt.Printf("indexed %d recipe(s) → %s\n", idx.Count, s.StatePath("index.json"))
+	if !*noRegistry {
+		if registryWarn != "" {
+			fmt.Fprintf(os.Stderr, "chant: registry not updated — %s\n", registryWarn)
+		} else {
+			fmt.Printf("upserted %d enchantment(s) into the registry → %s\n", upserted, registry.DefaultPath())
+		}
+	}
 	return nil
+}
+
+// upsertLocalIntoRegistry loads the per-machine registry and upserts every
+// local recipe carrying a spell_hash, using an absolute recipe_path. It returns
+// the number upserted and a non-empty warning string on any failure (it never
+// returns an error, so `chant index` degrades gracefully without a registry).
+func upsertLocalIntoRegistry(s *store.Store) (int, string) {
+	recs, err := s.LoadAll()
+	if err != nil {
+		return 0, err.Error()
+	}
+	reg, err := registry.Load(registry.DefaultPath())
+	if err != nil {
+		return 0, err.Error()
+	}
+	var entries []registry.Entry
+	for _, r := range recs {
+		absPath, perr := filepath.Abs(r.Dir())
+		if perr != nil {
+			absPath = r.Dir()
+		}
+		if e, ok := registry.EntryFromRecipe(r, absPath); ok {
+			entries = append(entries, e)
+		}
+	}
+	n := reg.Upsert(entries...)
+	if err := reg.Save(); err != nil {
+		return 0, err.Error()
+	}
+	return n, ""
+}
+
+// ---- import ----
+
+// cmdImport copies a foreign enchantment out of the per-machine registry into
+// the local recipe library (spec §6). It is verifier-first: import NEVER marks
+// anything trusted — it only stages the recipe so the user/agent then runs
+// `chant verify <id>`, which re-runs the verifier in the local context. A
+// foreign hit is the most suspect kind of hit, so the printed/JSON next step is
+// always the local verify, and `trusted` stays false.
+func cmdImport(args []string) error {
+	fs := flag.NewFlagSet("import", flag.ContinueOnError)
+	as := fs.String("as", "", "import under a different local recipe id")
+	force := fs.Bool("force", false, "overwrite an existing local recipe of the same id")
+	asJSON := fs.Bool("json", false, "emit JSON outcome contract")
+	positionals, err := parseFlags(fs, args)
+	if err != nil {
+		return err
+	}
+	if len(positionals) == 0 {
+		return fmt.Errorf("import requires an id or spell_hash (chant import <id|spell_hash> [--as <newid>])")
+	}
+	ref := positionals[0]
+
+	reg, err := registry.Load(registry.DefaultPath())
+	if err != nil {
+		return fmt.Errorf("load registry: %w", err)
+	}
+	entry, ok := reg.Find(ref)
+	if !ok {
+		return fmt.Errorf("no enchantment %q in the registry (run `chant index` in its origin repo first)", ref)
+	}
+
+	s, err := openStore()
+	if err != nil {
+		return err
+	}
+
+	newID := strings.TrimSpace(*as)
+	if newID == "" {
+		newID = entry.ID
+	}
+	if s.Exists(newID) && !*force {
+		return fmt.Errorf("local recipe %q already exists (use --force to overwrite, or --as <newid> to import under a different id)", newID)
+	}
+
+	// Confirm the source recipe dir is present and copy it into the library.
+	if entry.RecipePath == "" {
+		return fmt.Errorf("registry entry %q has no recipe_path — re-index its origin repo", ref)
+	}
+	if _, statErr := os.Stat(filepath.Join(entry.RecipePath, recipe.CardFile)); statErr != nil {
+		return fmt.Errorf("source recipe missing at %s (%v) — re-index its origin repo", entry.RecipePath, statErr)
+	}
+	dst := s.DirFor(newID)
+	if err := copyRecipeDir(entry.RecipePath, dst); err != nil {
+		return fmt.Errorf("copy recipe: %w", err)
+	}
+
+	// If we imported under a new id, rewrite the card's id so it loads cleanly.
+	if newID != entry.ID {
+		if r, lerr := recipe.Load(dst); lerr == nil {
+			r.ID = newID
+			_ = r.Save()
+		}
+	}
+	_, _ = s.WriteIndex()
+
+	hasVerifier := entry.HasVerifier
+	out := outcome.Outcome{
+		Subcommand: "import", RecipeID: newID, Version: entry.Version,
+		// Verifier-first: import stages the recipe; it NEVER establishes trust.
+		Trusted:                false,
+		RecommendedNextCommand: fmt.Sprintf("chant verify %s", newID),
+	}
+	if hasVerifier {
+		out.Message = fmt.Sprintf("imported %q from %s — NOT trusted yet; run its verifier in this repo", newID, entry.Origin)
+	} else {
+		out.Message = fmt.Sprintf("imported %q from %s WITHOUT a verifier — reuse cannot be trusted until you add one", newID, entry.Origin)
+		out.SuggestedCommands = []string{fmt.Sprintf("chant capture --id %s --force --verifier \"<cmd>\" ...", newID)}
+	}
+	if *asJSON {
+		return emitJSON(out)
+	}
+	fmt.Printf("imported %q from %s → %s\n", newID, originLabel(entry.Origin), dst)
+	if hasVerifier {
+		fmt.Printf("⚠ foreign enchantment — NOT trusted. Run `chant verify %s` to re-run its verifier here.\n", newID)
+	} else {
+		fmt.Println("⚠ no verifier on the imported recipe — add one before trusting any reuse.")
+	}
+	return nil
+}
+
+// originLabel renders a provenance origin for human output, defaulting to
+// "(unknown origin)" when the source recorded none.
+func originLabel(origin string) string {
+	if strings.TrimSpace(origin) == "" {
+		return "(unknown origin)"
+	}
+	return origin
+}
+
+// copyRecipeDir recursively copies a recipe directory tree from src to dst,
+// preserving regular files (with their mode) and nested dirs. It does not
+// follow symlinks. dst is created if absent.
+func copyRecipeDir(src, dst string) error {
+	srcAbs, err := filepath.Abs(src)
+	if err != nil {
+		return err
+	}
+	return filepath.WalkDir(srcAbs, func(path string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		rel, err := filepath.Rel(srcAbs, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		if d.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		// Skip non-regular files (symlinks, sockets, etc.) for safety.
+		if !info.Mode().IsRegular() {
+			return nil
+		}
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return err
+		}
+		return os.WriteFile(target, b, info.Mode().Perm())
+	})
 }
 
 // ---- status ----

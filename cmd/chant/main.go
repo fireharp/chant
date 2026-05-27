@@ -48,6 +48,8 @@ func main() {
 		err = cmdInvalidate(args)
 	case "index":
 		err = cmdIndex(args)
+	case "import":
+		err = cmdImport(args)
 	case "doctor":
 		err = cmdDoctor(args)
 	case "status":
@@ -96,7 +98,7 @@ func usage() {
 Usage: chant <command> [flags]
 
 Lifecycle (the agent hook surface):
-  suggest   --task "..." [--files a,b] [--columns a,b]   find a reusable recipe before writing new code
+  suggest   --task "..." [--files a,b] [--columns a,b] [--global]   find a reusable recipe before writing new code
   capture   --id <id> --task "..." --command "..."        distill solved work into a verified recipe
   run       <id> [--input k=v ...]                        execute a recipe (adapts {{vars}})
   verify    <id> [--input k=v ...]                        run the verifier; only a pass is "trusted"
@@ -106,10 +108,11 @@ Library:
   search    "<query>"        rank recipes against a query
   explain   <id>             print a recipe card
   invalidate <id>            mark a recipe stale
+  import    <id|spell_hash> [--as <id>]   copy a foreign enchantment locally (then chant verify)
 
 Repo:
   init                       scaffold chant.yml, recipes/, skill, gitignore
-  index                      rebuild .chant/index.json
+  index    [--no-registry]   rebuild .chant/index.json (and upsert into the per-machine registry)
   status                     rewrite .chant/STATUS.md
   doctor                     validate config + store
   bench [--suite=retrieval|e2e|all]   run the validation suite

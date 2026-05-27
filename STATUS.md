@@ -50,13 +50,10 @@ docs/ evidence/       command reference + specs + user stories · iteration ledg
 | Docs | ✅ README, AGENTS, 13 command pages, spec, 23 user stories, scenario catalog — reconciled to the binary |
 | CI + release | ✅ gofmt/vet/test/bench gate; release-please cross-builds installable tarballs |
 | JSON outcome contract | ✅ incl. blocking_error on error paths; always-present match_found |
+| Cross-package registry | ✅ `index` upserts to a per-machine registry; `suggest --global` surfaces foreign enchantments by `spell_hash`; `import` copies one locally (verifier-first — import ≠ trust) |
 
 ## In progress / roadmap
 
-- **#9 cross-package registry** (in progress): `chant index` upserts to a
-  per-machine registry; `chant suggest --global` surfaces foreign enchantments
-  by `spell_hash`; `chant import` copies one locally (verifier-first — import
-  ≠ trust).
 - **Scope promotion** (spec §5): earn project → domain → universal from
   verified-in-N-contexts evidence; `chant promote`.
 - **Typed relations** surfaced/queried (supersedes/mirrors/depends_on/implements).

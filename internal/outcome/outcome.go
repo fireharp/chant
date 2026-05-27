@@ -15,6 +15,21 @@ type Hit struct {
 	// ReuseCommand is the exact command an agent should run to reuse this
 	// recipe (verifier-first): it runs then verifies.
 	ReuseCommand string `json:"reuse_command,omitempty"`
+
+	// ── cross-package discovery (spec §6) ────────────────────────────────
+	// These fields are only set on FOREIGN hits from `suggest --global`: a
+	// recipe whose source lives outside the current repo. They are additive
+	// and omitempty so a local-only hit serializes exactly as before.
+	//
+	// Global marks a hit as coming from the per-machine registry rather than
+	// the local library.
+	Global bool `json:"global,omitempty"`
+	// Origin is the provenance origin (repo/package) of a foreign hit.
+	Origin string `json:"origin,omitempty"`
+	// Scope is the foreign hit's maturity channel (project|domain|universal).
+	Scope string `json:"scope,omitempty"`
+	// SpellHash is the portable identity used to import a foreign hit.
+	SpellHash string `json:"spell_hash,omitempty"`
 }
 
 // Outcome is the union shape emitted by chant subcommands with --json. Unset
