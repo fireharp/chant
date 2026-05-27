@@ -130,9 +130,9 @@ func (s *Store) Exists(id string) bool {
 
 // Index is the rebuilt-on-demand retrieval index written to .chant/index.json.
 type Index struct {
-	GeneratedAt string         `json:"generated_at"`
-	Count       int            `json:"count"`
-	Recipes     []IndexEntry   `json:"recipes"`
+	GeneratedAt string       `json:"generated_at"`
+	Count       int          `json:"count"`
+	Recipes     []IndexEntry `json:"recipes"`
 }
 
 // IndexEntry is a flattened recipe summary for fast listing.

@@ -14,13 +14,13 @@ import (
 
 // Report is the structured form of STATUS, also emitted by `chant status --json`.
 type Report struct {
-	GeneratedAt  string         `json:"generated_at"`
-	RecipeCount  int            `json:"recipe_count"`
-	ActiveCount  int            `json:"active_count"`
-	StaleCount   int            `json:"stale_count"`
-	TotalRuns    int            `json:"total_runs"`
-	TotalFailures int           `json:"total_failures"`
-	Recipes      []RecipeStat   `json:"recipes"`
+	GeneratedAt   string       `json:"generated_at"`
+	RecipeCount   int          `json:"recipe_count"`
+	ActiveCount   int          `json:"active_count"`
+	StaleCount    int          `json:"stale_count"`
+	TotalRuns     int          `json:"total_runs"`
+	TotalFailures int          `json:"total_failures"`
+	Recipes       []RecipeStat `json:"recipes"`
 }
 
 // RecipeStat is one row of the status table.

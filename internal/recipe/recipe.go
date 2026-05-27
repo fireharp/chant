@@ -45,6 +45,31 @@ type Recipe struct {
 	// verifier re-confirms it.
 	Status string `yaml:"status,omitempty"`
 
+	// ── enchantment metadata (optional; see enchantment.go and
+	// docs/specs/enchantment-metadata.md §3) ──────────────────────────────
+	// Every field below is optional: a recipe.yaml carrying none of them
+	// behaves exactly as before. They power cross-package recognition,
+	// provenance, a portability contract, scope/universality, and lineage.
+
+	// SpellHash is the content-addressed identity of the procedure (spec §4).
+	// Same procedure ⇒ same hash across repos. Filled by `chant capture`.
+	SpellHash string `yaml:"spell_hash,omitempty"`
+	// LineageID is a stable family id shared across versions/forks.
+	LineageID string `yaml:"lineage_id,omitempty"`
+	// Provenance records where the enchantment came from.
+	Provenance Provenance `yaml:"provenance,omitempty"`
+	// Scope is the maturity channel: project | domain | universal (spec §5).
+	Scope string `yaml:"scope,omitempty"`
+	// Domains are discovery labels broader than tags.
+	Domains []string `yaml:"domains,omitempty"`
+	// VerifiedIn lists distinct contexts where the verifier passed (drives
+	// scope promotion; computed, not hand-set).
+	VerifiedIn []VerifiedContext `yaml:"verified_in,omitempty"`
+	// Portability is the contract for moving the enchantment to another package.
+	Portability Portability `yaml:"portability,omitempty"`
+	// Relations are typed lineage edges (coherence edge vocabulary).
+	Relations Relations `yaml:"relations,omitempty"`
+
 	// dir is the absolute directory this recipe was loaded from. Not serialized.
 	dir string `yaml:"-"`
 }

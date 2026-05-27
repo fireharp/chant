@@ -24,11 +24,11 @@ import (
 
 // Result is one scenario outcome.
 type Result struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	Suite    string `json:"suite"`
-	Pass     bool   `json:"pass"`
-	Detail   string `json:"detail"`
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Suite  string `json:"suite"`
+	Pass   bool   `json:"pass"`
+	Detail string `json:"detail"`
 }
 
 // Summary aggregates a bench run.
@@ -93,27 +93,27 @@ func RetrievalSuite() []RetrievalScenario {
 
 	return []RetrievalScenario{
 		{
-			ID:   "RET-001", Name: "hit on similar revenue task",
-			Recipes: set,
-			Query:   retrieve.Query{Task: "calculate revenue by channel from this CSV export", Files: []string{"orders_shopify.csv"}, Columns: []string{"utm_source", "amount"}},
+			ID: "RET-001", Name: "hit on similar revenue task",
+			Recipes:   set,
+			Query:     retrieve.Query{Task: "calculate revenue by channel from this CSV export", Files: []string{"orders_shopify.csv"}, Columns: []string{"utm_source", "amount"}},
 			ExpectTop: "csv-revenue-by-channel", ExpectMatch: true,
 		},
 		{
-			ID:   "RET-002", Name: "no false hit on unrelated task",
-			Recipes: set,
-			Query:   retrieve.Query{Task: "rotate the kubernetes TLS certificates in the staging cluster"},
+			ID: "RET-002", Name: "no false hit on unrelated task",
+			Recipes:   set,
+			Query:     retrieve.Query{Task: "rotate the kubernetes TLS certificates in the staging cluster"},
 			ExpectTop: "", ExpectMatch: false,
 		},
 		{
-			ID:   "RET-003", Name: "refund task routes to refund recipe",
-			Recipes: set,
-			Query:   retrieve.Query{Task: "the customer wants a refund and is threatening a chargeback dispute"},
+			ID: "RET-003", Name: "refund task routes to refund recipe",
+			Recipes:   set,
+			Query:     retrieve.Query{Task: "the customer wants a refund and is threatening a chargeback dispute"},
 			ExpectTop: "refund-chargeback-threat", ExpectMatch: true,
 		},
 		{
-			ID:   "RET-004", Name: "column signals disambiguate revenue vs normalize",
-			Recipes: set,
-			Query:   retrieve.Query{Task: "compute revenue by channel", Files: []string{"orders.csv"}, Columns: []string{"channel", "price"}},
+			ID: "RET-004", Name: "column signals disambiguate revenue vs normalize",
+			Recipes:   set,
+			Query:     retrieve.Query{Task: "compute revenue by channel", Files: []string{"orders.csv"}, Columns: []string{"channel", "price"}},
 			ExpectTop: "csv-revenue-by-channel", ExpectMatch: true,
 		},
 	}

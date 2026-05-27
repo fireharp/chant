@@ -34,8 +34,8 @@ type Outcome struct {
 	VerifierRan bool   `json:"verifier_ran,omitempty"`
 	// Trusted is the verifier-first verdict: true ONLY after a passing
 	// verifier. A cache hit alone never sets this.
-	Trusted    bool  `json:"trusted"`
-	RuntimeMS  int64 `json:"runtime_ms,omitempty"`
+	Trusted   bool  `json:"trusted"`
+	RuntimeMS int64 `json:"runtime_ms,omitempty"`
 	// LLMCallsAvoided is a reuse-win estimate carried on the recipe.
 	LLMCallsAvoided int `json:"llm_calls_avoided,omitempty"`
 
@@ -46,8 +46,8 @@ type Outcome struct {
 	Stale bool `json:"stale,omitempty"`
 
 	// shared
-	BlockingError           bool     `json:"blocking_error,omitempty"`
-	Message                 string   `json:"message,omitempty"`
-	SuggestedCommands       []string `json:"suggested_commands,omitempty"`
-	RecommendedNextCommand  string   `json:"recommended_next_command,omitempty"`
+	BlockingError          bool     `json:"blocking_error,omitempty"`
+	Message                string   `json:"message,omitempty"`
+	SuggestedCommands      []string `json:"suggested_commands,omitempty"`
+	RecommendedNextCommand string   `json:"recommended_next_command,omitempty"`
 }

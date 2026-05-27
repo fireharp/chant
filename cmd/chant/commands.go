@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -130,6 +131,8 @@ func cmdCapture(args []string) error {
 	tags := fs.String("tags", "", "comma-separated tags")
 	patterns := fs.String("patterns", "", "comma-separated extra task patterns")
 	fileSignals := fs.String("file-signals", "", "comma-separated input file globs")
+	columns := fs.String("columns", "", "comma-separated required column aliases (one alias group)")
+	author := fs.String("author", "", "provenance author (defaults to agent:capture)")
 	force := fs.Bool("force", false, "overwrite an existing recipe")
 	asJSON := fs.Bool("json", false, "emit JSON outcome contract")
 	if err := fs.Parse(args); err != nil {
@@ -162,6 +165,13 @@ func cmdCapture(args []string) error {
 		taskPatterns = append([]string{*task}, taskPatterns...)
 	}
 
+	// Column signals, if supplied, become one alias group: they feed both the
+	// retrieval input_signals and the portability input contract below.
+	var columnsAny [][]string
+	if cols := splitCSV(*columns); len(cols) > 0 {
+		columnsAny = [][]string{cols}
+	}
+
 	r := &recipe.Recipe{
 		ID:          rid,
 		Version:     1,
@@ -171,7 +181,10 @@ func cmdCapture(args []string) error {
 		WhenToUse: recipe.WhenToUse{
 			TaskPatterns: taskPatterns,
 			Tags:         splitCSV(*tags),
-			InputSignals: recipe.InputSignals{Files: splitCSV(*fileSignals)},
+			InputSignals: recipe.InputSignals{
+				Files:      splitCSV(*fileSignals),
+				ColumnsAny: columnsAny,
+			},
 		},
 		WhatToDo: recipe.WhatToDo{
 			Entrypoint: *entrypoint,
@@ -205,6 +218,41 @@ func cmdCapture(args []string) error {
 	}
 
 	r.ComputeFingerprints()
+
+	// ── enchantment metadata (spec §8 step 2) ────────────────────────────
+	// Everything here is best-effort and optional: a minimal capture still
+	// produces a working recipe. spell_hash is computed after fingerprints so
+	// the entrypoint source (if copied above) is on disk for the content hash.
+	r.SpellHash = r.ComputeSpellHash()
+
+	authorName := strings.TrimSpace(*author)
+	if authorName == "" {
+		authorName = "agent:capture"
+	}
+	r.Provenance = recipe.Provenance{
+		Origin:     detectOrigin(s.Root),
+		CapturedAt: time.Now().UTC().Format(time.RFC3339),
+		Author:     authorName,
+	}
+
+	// Default to project scope; promotion is earned via verified_in (spec §5).
+	if r.Scope == "" {
+		r.Scope = "project"
+	}
+
+	// Portability contract: determinism is best-effort (a recipe with a
+	// verifier and no recorded side effects is treated as deterministic), the
+	// runtime is reused from --language / dependencies, and the input contract
+	// carries any column signals and schema fingerprint we have.
+	r.Portability.Determinism = "deterministic"
+	r.Portability.Requires.Runtime = captureRuntime(r)
+	if r.Fingerprints.SchemaFingerprint != "" {
+		r.Portability.InputContract.SchemaFingerprint = r.Fingerprints.SchemaFingerprint
+	}
+	if len(columnsAny) > 0 {
+		r.Portability.InputContract.RequiredColumnsAny = columnsAny
+	}
+
 	if err := r.Save(); err != nil {
 		return err
 	}
@@ -227,6 +275,57 @@ func cmdCapture(args []string) error {
 		fmt.Printf("→ run `chant verify %s` to confirm the verifier passes.\n", rid)
 	}
 	return nil
+}
+
+// detectOrigin best-effort determines the provenance origin: the git remote
+// "origin" URL (normalized to host/path) if available, else the repo root
+// path. Never fails — provenance fields are optional.
+func detectOrigin(root string) string {
+	out, err := exec.Command("git", "-C", root, "remote", "get-url", "origin").Output()
+	if err == nil {
+		if u := normalizeRemoteURL(strings.TrimSpace(string(out))); u != "" {
+			return u
+		}
+	}
+	return root
+}
+
+// normalizeRemoteURL turns a git remote URL into a stable host/path form
+// (e.g. "github.com/fireharp/chant"), dropping scheme, credentials, and the
+// trailing ".git". Returns "" if it can't parse anything useful.
+func normalizeRemoteURL(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	s := raw
+	// scp-like form: git@github.com:owner/repo.git
+	if strings.HasPrefix(s, "git@") {
+		s = strings.TrimPrefix(s, "git@")
+		s = strings.Replace(s, ":", "/", 1)
+	} else {
+		// strip scheme://[user@]
+		if i := strings.Index(s, "://"); i >= 0 {
+			s = s[i+3:]
+		}
+		if i := strings.Index(s, "@"); i >= 0 {
+			s = s[i+1:]
+		}
+	}
+	s = strings.TrimSuffix(s, ".git")
+	s = strings.Trim(s, "/")
+	return s
+}
+
+// captureRuntime resolves the portability runtime from the recipe's pinned
+// dependencies, falling back to the informational language tag.
+func captureRuntime(r *recipe.Recipe) string {
+	if r.Dependencies.Runtime != "" {
+		return r.Dependencies.Runtime
+	}
+	if r.WhatToDo.Language != "" {
+		return r.WhatToDo.Language
+	}
+	return ""
 }
 
 // ---- list ----

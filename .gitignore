@@ -8,3 +8,5 @@ bin/
 # generated recipe artifacts (produced by `chant run`/`verify`)
 recipes/**/revenue_by_channel.json
 recipes/**/answer.json
+.claude/worktrees/
+.claude/*.local.md
