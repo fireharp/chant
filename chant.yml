@@ -1,0 +1,13 @@
+version: 1
+# chant.yml — configuration for the recipe cache.
+# Recipes live under recipes_dir (committed). Runtime state is in .chant/ (gitignored).
+
+recipes_dir: recipes
+
+retrieval:
+  # Hybrid scorer weights. A hit above threshold is a *candidate*; only a
+  # passing verifier makes a reuse result trusted.
+  weight_lexical: 0.5        # task-text overlap with description/patterns
+  weight_tags: 0.3           # structural file/column signal match
+  weight_success_rate: 0.2   # verifier track record
+  threshold: 0.25            # minimum score for 'chant suggest' to report a match

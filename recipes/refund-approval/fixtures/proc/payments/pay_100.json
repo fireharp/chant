@@ -1,0 +1,7 @@
+{
+  "payment_id": "pay_100",
+  "customer_id": "cust_alice",
+  "status": "paid",
+  "amount": 320,
+  "currency": "EUR"
+}

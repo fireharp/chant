@@ -1,0 +1,36 @@
+# chant recipe card — a verified, reusable procedure.
+# Edit by hand or let `chant capture` regenerate it.
+id: refund-approval
+version: 1
+kind: executable_recipe
+description: Approve an e-commerce refund deterministically — security gate, status-chain check, and side-effect — distilled from BitGN's refund/chargeback solver (t43-t44).
+when_to_use:
+    task_patterns:
+        - approve a refund for a return
+        - refund payment after chargeback threat
+        - finalize refund for return
+    tags:
+        - refund
+        - payments
+        - ecommerce
+        - policy
+        - security
+what_to_do:
+    entrypoint: run.py
+    command: python3 run.py {{input}}
+    language: python
+verification:
+    command: python3 test_recipe.py
+    expected_artifacts:
+        - answer.json
+invalidation:
+    if_tests_fail: true
+dependencies:
+    runtime: 'python: >=3.8'
+examples:
+    - input: ret_200
+      output: answer.json
+metrics:
+    runs: 0
+    failures: 0
+status: active

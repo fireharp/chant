@@ -1,0 +1,6 @@
+{
+  "return_id": "ret_201",
+  "payment_id": "pay_100",
+  "customer_id": "cust_alice",
+  "status": "rejected"
+}

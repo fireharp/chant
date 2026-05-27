@@ -1,0 +1,47 @@
+# chant recipe card — a verified, reusable procedure.
+# Edit by hand or let `chant capture` regenerate it.
+id: csv-revenue-by-channel
+version: 1
+kind: executable_recipe
+description: Compute ecommerce revenue by channel from CSV-like exports, robust to column-name drift across Shopify/Stripe/custom exports.
+when_to_use:
+    task_patterns:
+        - compute revenue by channel from csv
+        - analyze ecommerce orders export
+        - revenue breakdown by marketing channel
+    tags:
+        - csv
+        - ecommerce
+        - revenue
+        - analytics
+    input_signals:
+        files:
+            - '*.csv'
+        columns_any:
+            - - channel
+              - source
+              - utm_source
+            - - revenue
+              - amount
+              - price
+              - total
+what_to_do:
+    entrypoint: run.py
+    command: python3 run.py {{input}}
+    language: python
+verification:
+    command: python3 test_recipe.py
+    expected_artifacts:
+        - revenue_by_channel.json
+invalidation:
+    if_tests_fail: true
+    if_columns_missing: true
+dependencies:
+    runtime: 'python: >=3.8'
+examples:
+    - input: examples/orders_shopify.csv
+      output: revenue_by_channel.json
+metrics:
+    runs: 0
+    failures: 0
+status: active

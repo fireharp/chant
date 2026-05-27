@@ -1,0 +1,90 @@
+version: 1
+# coherence ontology for chant — a Go CLI recipe cache for coding agents.
+# This file keeps coherence's drift rules wired for the chant repo: when code,
+# recipes, or the outcome contract change, expect the matching docs/tests/
+# verifier to move with them. Loadable by `coherence doctor` and the rules
+# engine; shape mirrors coherence (id/when/expect_any/severity/message/
+# suggested_commands).
+
+commands:
+  test:
+    - go test ./...
+  build:
+    - go build ./cmd/chant
+
+rules:
+  - id: cli-change-needs-docs
+    when:
+      - "cmd/chant/*.go"
+    expect_any:
+      - "README.md"
+      - "AGENTS.md"
+      - "docs/commands/*.md"
+    severity: warn
+    message: "CLI surface changed; update the command reference (README/AGENTS/docs/commands)."
+    suggested_commands:
+      - go build ./cmd/chant
+      - ./bin/chant help
+
+  - id: internal-change-needs-tests
+    when:
+      - "internal/**/*.go"
+    expect_any:
+      - "internal/**/*_test.go"
+    severity: warn
+    message: "internal package changed; add or update its tests next to the package."
+    suggested_commands:
+      - go test ./...
+
+  - id: outcome-contract-needs-docs
+    when:
+      - "internal/outcome/outcome.go"
+    expect_any:
+      - "README.md"
+      - "AGENTS.md"
+      - "docs/README.md"
+    severity: error
+    message: "The JSON outcome contract changed; it is a stable agent/hook contract — document the field change before shipping."
+    suggested_commands:
+      - ./bin/chant suggest --task example --json
+      - git diff -- internal/outcome/outcome.go
+
+  - id: recipe-schema-needs-docs
+    when:
+      - "internal/recipe/recipe.go"
+      - "internal/config/config.go"
+    expect_any:
+      - "README.md"
+      - "docs/README.md"
+    severity: warn
+    message: "Recipe card or config schema changed; update the recipe-card / chant.yml docs."
+    suggested_commands:
+      - git diff -- internal/recipe/recipe.go internal/config/config.go
+
+  - id: recipe-change-needs-verifier
+    when:
+      - "recipes/**/recipe.yaml"
+    expect_any:
+      - "recipes/**/test_*.py"
+      - "recipes/**/*_test.py"
+      - "recipes/**/*_test.go"
+      - "recipes/**/*.test.*"
+      - "recipes/**/verifier.*"
+    severity: error
+    message: "A recipe card changed but no verifier moved with it; a recipe without a passing verifier cannot be trusted on reuse."
+    suggested_commands:
+      - ./bin/chant verify --json <recipe-id>
+
+  - id: retrieval-change-needs-bench
+    when:
+      - "internal/retrieve/retrieve.go"
+      - "internal/bench/bench.go"
+    expect_any:
+      - "internal/retrieve/retrieve_test.go"
+      - "internal/bench/bench_test.go"
+      - "docs/commands/bench.md"
+    severity: warn
+    message: "Retrieval scorer or bench suite changed; re-run the validation suite and update its docs/tests."
+    suggested_commands:
+      - go test ./...
+      - ./bin/chant bench --json

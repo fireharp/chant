@@ -1,0 +1,5 @@
+order_id,utm_source,amount,currency
+1001,google,100.00,USD
+1002,google,50.00,USD
+1003,facebook,200.00,USD
+1004,direct,25.50,USD

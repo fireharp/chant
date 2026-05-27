@@ -1,0 +1,134 @@
+# chant Command Reference
+
+This folder is the long-form reference for **every command** chant ships.
+Each page tells you the same things:
+
+1. **What it does** — the job the command performs in the recipe lifecycle.
+2. **Flags** — every flag the command accepts, with defaults.
+3. **Example invocation with real output** — copy-pasted from the actual binary.
+4. **The JSON shape** — the `--json` outcome contract, where applicable.
+
+The goal is for a reader who's never seen the codebase to pick any command and
+understand what it does, what it emits, and how it fits the verifier-first reuse
+loop.
+
+A chant recipe is also called an **enchantment** (synonym; the on-disk form is
+`recipe.yaml`, the code type is `recipe.Recipe`).
+
+---
+
+## Layout
+
+```
+docs/
+├── README.md            ← you are here
+├── commands/            ← one page per CLI command
+└── specs/               ← design specs (owned by the lead; see enchantment-metadata.md)
+```
+
+---
+
+## The reuse lifecycle
+
+chant's commands group into the agent hook surface, the library, and repo
+management. The lifecycle is **verifier-first**:
+
+```text
+suggest → (reuse: verify) → accept     ← before writing code, find + trust a recipe
+   │
+   └── miss → solve → capture → verify  ← after solving, cache the method
+```
+
+A retrieved recipe is a *candidate*; a reuse result is `trusted` only after its
+verifier passes.
+
+### Lifecycle (the agent hook surface)
+
+| Command | One-liner | Page |
+|---------|-----------|------|
+| `suggest` | Find a reusable recipe before writing new code. | [`commands/suggest.md`](commands/suggest.md) |
+| `capture` | Distill solved work into a verified recipe. | [`commands/capture.md`](commands/capture.md) |
+| `run` | Execute a recipe's procedure (never sets `trusted`). | [`commands/run.md`](commands/run.md) |
+| `verify` | Run the procedure + verifier; only a pass is `trusted`. | [`commands/verify.md`](commands/verify.md) |
+
+### Library
+
+| Command | One-liner | Page |
+|---------|-----------|------|
+| `list` | List recipes with version + success rate. | [`commands/list.md`](commands/list.md) |
+| `search` | Rank every recipe against a query. | [`commands/search.md`](commands/search.md) |
+| `explain` | Print a recipe card. | [`commands/explain.md`](commands/explain.md) |
+| `invalidate` | Mark a recipe stale. | [`commands/invalidate.md`](commands/invalidate.md) |
+
+### Repo
+
+| Command | One-liner | Page |
+|---------|-----------|------|
+| `init` | Scaffold `chant.yml`, `recipes/`, skill, gitignore. | [`commands/init.md`](commands/init.md) |
+| `index` | Rebuild `.chant/index.json`. | [`commands/index.md`](commands/index.md) |
+| `status` | Rewrite `.chant/STATUS.md`. | [`commands/status.md`](commands/status.md) |
+| `doctor` | Validate config + store. | [`commands/doctor.md`](commands/doctor.md) |
+| `bench` | Run the validation suite. | [`commands/bench.md`](commands/bench.md) |
+
+---
+
+## The verifier-first trust gate
+
+This is the principle every page returns to. A reuse result is "trusted" ONLY
+after its verifier passes:
+
+```text
+retrieve → adapt → execute → verify → accept     (chant)
+retrieve → trust                                  (the failure mode chant avoids)
+```
+
+In the JSON outcome contract this surfaces as a single boolean: `trusted`. It is
+`true` **only** in a `verify` payload after a passing verifier. `suggest`,
+`search`, and `run` always report `trusted: false` — they retrieve and execute,
+they do not bless.
+
+---
+
+## JSON outcome contract
+
+Every command accepts `--json` and emits a stable top-level vocabulary so
+pre-commit hooks and agents can decide what to do next without parsing prose.
+The full field table is in the [project README](../README.md#json-outcome-contract);
+the source of truth is
+[`internal/outcome/outcome.go`](../internal/outcome/outcome.go). Unset fields
+are omitted so each subcommand's payload stays focused.
+
+> **Flag ordering:** chant uses Go's `flag` package, which stops parsing flags
+> at the first non-flag argument. For commands that take a positional recipe id
+> (`verify`, `run`, `explain`, `invalidate`), put `--json` **before** the id:
+> `chant verify --json <id>`.
+
+---
+
+## Enchantment metadata & reuse
+
+A planned, fully backward-compatible metadata layer extends the recipe card with
+provenance, a `project → domain → universal` scope ladder, a content-addressed
+`spell_hash` identity, typed relations (reusing coherence's edge vocabulary), and
+cross-package discovery via a local registry. The canonical design is
+[`specs/enchantment-metadata.md`](specs/enchantment-metadata.md). Only the fields
+listed on each command page and in the README recipe-card table are emitted by
+the CLI **today**; the metadata model is **planned/spec**.
+
+---
+
+## Bench
+
+Every page's behavior is exercised by `chant bench`, which ships two suites:
+
+- **retrieval** — synthetic recipe set + queries asserting which recipe ranks
+  first (including true negatives: an unrelated query must NOT match).
+- **e2e** — runs each recipe's procedure + verifier and asserts the
+  verifier-first gate (trusted only after the verifier passes).
+
+```bash
+chant bench --suite=all
+```
+
+Exit code is `1` when any scenario fails — same CI muscle memory as
+`coherence bench`. See [`commands/bench.md`](commands/bench.md).

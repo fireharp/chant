@@ -1,2 +1,10 @@
 LOCAL.md
 .env
+.coherence/
+.claude/ralph-loop.local.md
+bin/
+.chant/
+.DS_Store
+# generated recipe artifacts (produced by `chant run`/`verify`)
+recipes/**/revenue_by_channel.json
+recipes/**/answer.json
