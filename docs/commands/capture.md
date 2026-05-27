@@ -10,9 +10,16 @@
 Writes a new recipe card (`recipes/<id>/recipe.yaml`) from the supplied task,
 command, verifier, and signals — optionally copying an entrypoint script into
 the recipe directory — then rebuilds the index. The captured recipe starts at
-`version: 1`, `status: active`, with zero recorded runs. Capture does **not**
+`version: 1`, `status: active`, with zero recorded runs, and `chant capture`
+also writes the [enchantment metadata](#enchantment-metadata) layer
+(`spell_hash`, `provenance`, `scope`, `portability`). Capture does **not**
 establish trust; the recommended next step is `chant verify <id>` to run the
 verifier and record the first trust event.
+
+> **A recipe runs inside its own directory** (`recipes/<id>/`). Any file the
+> `command` or `verifier` references must live there, or `chant verify` fails
+> because the file isn't found. Use `--entrypoint-src <path>` to copy a script
+> into the recipe dir at capture time.
 
 ## Flags
 
@@ -22,11 +29,13 @@ verifier and record the first trust event.
 | `--task` | empty | task description; becomes the first `when_to_use.task_patterns` entry. Required unless `--id` is given. |
 | `--description` | `--task` value | recipe description. |
 | `--command` | *(required)* | the `what_to_do.command` (may contain `{{vars}}`). |
-| `--language` | empty | informational language tag. |
+| `--language` | empty | informational language tag; also populates `portability.requires.runtime`. |
 | `--entrypoint` | empty | entrypoint filename inside the recipe dir. |
 | `--entrypoint-src` | empty | copy this file into the recipe dir as the entrypoint. |
 | `--verifier` | empty | verification command (exit 0 == verified). |
 | `--expect-artifacts` | empty | comma-separated expected output artifacts. |
+| `--columns` | empty | comma-separated logical columns the inputs must satisfy; populates `portability.input_contract.required_columns_any`. |
+| `--author` | `agent:capture` | provenance author written to `provenance.author`. |
 | `--tags` | empty | comma-separated tags. |
 | `--patterns` | empty | comma-separated extra task patterns. |
 | `--file-signals` | empty | comma-separated input file globs. |
@@ -34,48 +43,116 @@ verifier and record the first trust event.
 | `--json` | false | emit the JSON outcome contract. |
 
 Capture errors if `--command` is empty, or if neither `--task` nor `--id` is
-given, or if the recipe already exists without `--force`.
+given, or if the recipe already exists without `--force`. Flags work in any
+position.
+
+## Example — verified end to end
+
+This walkthrough is verified working. `--entrypoint-src hello.sh` copies the
+script into `recipes/greet/` as `greet.sh` so the in-dir command and verifier
+can find it:
+
+```bash
+printf '#!/bin/sh\necho "hello $1"\n' > hello.sh
+
+chant capture --id greet --task "greet a name" \
+  --command 'sh greet.sh {{name}}' --entrypoint-src hello.sh --entrypoint greet.sh \
+  --verifier 'sh -c "test \"$(sh greet.sh world)\" = \"hello world\""'
+
+chant verify greet --input name=world
+# → ✓ greet verified — trusted
+```
+
+```text
+captured recipe "greet" (v1) at /path/to/repo/recipes/greet
+→ run `chant verify greet` to confirm the verifier passes.
+```
 
 ## Example (JSON)
 
 ```bash
-chant capture --id hello-echo --task "print a greeting" \
-  --command 'echo hello > out.txt' \
-  --verifier 'test -f out.txt' --expect-artifacts out.txt \
-  --tags demo --json
+chant capture --id greet --task "greet a name" \
+  --command 'sh greet.sh {{name}}' --entrypoint-src hello.sh --entrypoint greet.sh \
+  --verifier 'sh -c "test \"$(sh greet.sh world)\" = \"hello world\""' \
+  --author "agent:claude" --json
 ```
 
 ```json
 {
   "subcommand": "capture",
-  "recipe_id": "hello-echo",
+  "match_found": false,
+  "recipe_id": "greet",
   "version": 1,
   "exit_code": 0,
   "trusted": false,
   "captured": true,
   "message": "recipe captured — verify it to establish trust",
-  "recommended_next_command": "chant verify hello-echo"
+  "recommended_next_command": "chant verify greet"
 }
 ```
 
-## Example (human)
+## Example — capture without a verifier
+
+A capture without a verifier still succeeds (exit 0) but flags the gap. The
+human output warns:
 
 ```text
-captured recipe "hello-echo" (v1) at /path/to/repo/recipes/hello-echo
-→ run `chant verify hello-echo` to confirm the verifier passes.
-```
-
-If you capture **without** a verifier, the human output warns:
-
-```text
+captured recipe "nv" (v1) at /path/to/repo/recipes/nv
 ⚠ no verifier set — add one so reuse can be trusted (a hit without a verifier is just a guess).
 ```
 
+Under `--json` the gap is carried in `message` and `suggested_commands` rather
+than printed as prose:
+
+```json
+{
+  "subcommand": "capture",
+  "match_found": false,
+  "recipe_id": "nv",
+  "version": 1,
+  "captured": true,
+  "trusted": false,
+  "message": "captured WITHOUT a verifier — reuse cannot be trusted until you add one",
+  "suggested_commands": [
+    "chant capture --id nv --force --verifier \"<cmd>\" ..."
+  ],
+  "recommended_next_command": "chant verify nv"
+}
+```
+
+## Enchantment metadata
+
+Every capture writes a fully backward-compatible metadata layer onto the card:
+
+```yaml
+spell_hash: ff9a7d644ac15c3d    # content-addressed identity of the procedure
+provenance:
+    origin: /abs/path/to/repo   # repo root at capture time
+    captured_at: "2026-05-27T21:35:06Z"
+    author: agent:claude        # from --author (defaults to agent:capture)
+scope: project                  # first rung of the universality ladder
+portability:
+    determinism: deterministic
+    input_contract:
+        required_columns_any:   # from --columns
+            - [channel, amount]
+    requires:
+        runtime: python         # from --language
+```
+
+`--author` sets `provenance.author`; `--columns a,b` populates
+`portability.input_contract.required_columns_any`; `--language` populates
+`portability.requires.runtime`. The registry, scope promotion, and typed
+relations described in
+[`docs/specs/enchantment-metadata.md`](../specs/enchantment-metadata.md) are
+still planned.
+
 ## JSON shape
 
-`subcommand: "capture"`, `recipe_id`, `version: 1`, `captured: true`,
-`trusted: false`, `message`, and `recommended_next_command` (`chant verify
-<id>`). See the [outcome contract](../README.md#json-outcome-contract).
+`subcommand: "capture"`, `match_found: false`, `recipe_id`, `version: 1`,
+`captured: true`, `trusted: false`, `message`, `recommended_next_command`
+(`chant verify <id>`), and — when no verifier was set — `suggested_commands`.
+See the [outcome contract](../README.md#json-outcome-contract).
 
 ## Versioning note
 

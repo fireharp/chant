@@ -121,12 +121,17 @@ verify it to establish trust.
    **CONFUSED:** unclear what was created or what to do next.
 
 3. **Action:** create a trivial script the enchantment will run, e.g. a file
-   `hello.sh` containing `echo "hello $1" && echo ok > out.txt`. Then capture:
-   `chant capture --id say-hello --task "say hello to a name" --command "sh hello.sh {{name}}" --verifier "test -f out.txt"`.
+   `hello.sh` containing `#!/bin/sh` then `echo "hello $1"`. A recipe runs
+   **inside its own directory** (`recipes/say-hello/`), so the script must be
+   copied there — `--entrypoint-src` does that at capture time. Capture:
+   `chant capture --id say-hello --task "say hello to a name" --command "sh hello.sh {{name}}" --entrypoint-src hello.sh --entrypoint hello.sh --verifier 'sh -c "test \"$(sh hello.sh World)\" = \"hello World\""'`.
    **Should see:** `captured recipe "say-hello" (v1) at recipes/say-hello` and a
-   hint to run `chant verify say-hello`.
-   **PASS:** capture succeeds and points to verify. **FAIL:** capture errors.
-   **CONFUSED:** unsure whether the enchantment is trusted yet (it should not be).
+   hint to run `chant verify say-hello`. The script now lives at
+   `recipes/say-hello/hello.sh`.
+   **PASS:** capture succeeds and points to verify. **FAIL:** capture errors, or
+   the script is missing from the recipe dir (forgot `--entrypoint-src`), which
+   makes step 5's verify fail. **CONFUSED:** unsure whether the enchantment is
+   trusted yet (it should not be).
 
 4. **Action:** run `chant suggest --task "say hello to a customer" --json`.
    **Should see:** JSON with `"match_found": true` and a hit `"id": "say-hello"`

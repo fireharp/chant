@@ -63,9 +63,12 @@ Use Go 1.26 or newer.
   ranks the library against a task and reports candidates at or above the
   retrieval threshold. This is the **pre-write hook**.
 - `./bin/chant capture --id <id> --task "..." --command "..." [--verifier "..."]
-  [--expect-artifacts a,b] [--entrypoint-src path] [--tags ...] [--force]
-  [--json]` distills solved work into a recipe card. This is the
-  **after-success hook**.
+  [--expect-artifacts a,b] [--entrypoint-src path] [--columns a,b]
+  [--author id] [--tags ...] [--force] [--json]` distills solved work into a
+  recipe card and writes enchantment metadata (`spell_hash`, `provenance`,
+  `scope`, `portability`). This is the **after-success hook**. A recipe runs
+  inside `recipes/<id>/`, so any file the command/verifier references must live
+  there — `--entrypoint-src <path>` copies it in at capture time.
 - `./bin/chant run <id> [--input k=v ...] [--timeout 60s] [--json]` executes a
   recipe's procedure after substituting `{{var}}` placeholders. **Never sets
   `trusted`** — `run` alone is not reuse.
@@ -89,11 +92,8 @@ Use Go 1.26 or newer.
 - `./bin/chant bench [--suite=retrieval|e2e|all] [--json]` runs the validation
   suites. Exit `1` on any scenario failure.
 
-> **Flag ordering matters.** chant uses Go's `flag` package, which stops parsing
-> flags at the first non-flag argument. For commands that take a positional
-> recipe id (`verify`, `run`, `explain`, `invalidate`), put flags **before** the
-> id: `chant verify --json <id>`. `chant verify <id> --json` runs in human mode
-> and silently ignores the trailing flag.
+Flags may appear in any position — before or after a positional recipe id both
+work (`chant verify <id> --json` and `chant verify --json <id>` are equivalent).
 
 ## The agent hook workflow
 
@@ -115,14 +115,25 @@ three load-bearing moments:
 3. **Capture after success.** When the agent solves a recurring task and it
    passes a test/verifier, capture the procedure so the next similar task reuses
    it: `chant capture --id <slug> --task "..." --command "..." --verifier "..."
-   --tags "..." --json`, then `chant verify <slug>` to confirm the verifier
-   passes and establish the first trust event.
+   --entrypoint-src <script> --tags "..." --json`, then `chant verify <slug>` to
+   confirm the verifier passes and establish the first trust event. The recipe
+   runs inside `recipes/<slug>/`, so use `--entrypoint-src` to copy any script
+   the command/verifier references into the recipe dir — otherwise verify fails
+   because the file isn't there.
 
 The shipped skill at `.agents/skills/chant/SKILL.md` (written by `chant init`)
 encodes this loop for Codex/Claude-style agents. Agents should consume the
 `--json` outcome contract (`internal/outcome/outcome.go`) rather than parsing
 human prose: `subcommand`, `match_found`, `hits[]`, `trusted`, `verifier_ran`,
-`recommended_next_command`.
+`recommended_next_command`. `match_found` is always present (`false` too), so a
+consumer never has to distinguish "no match" from "field absent".
+
+**Error contract.** Under `--json`, a command that fails prints a JSON object to
+**stdout** — `{"subcommand", "blocking_error": true, "message"}` — and exits 1,
+rather than writing prose to stderr. A `--json` consumer therefore always gets
+parseable JSON and can gate on `blocking_error`. A capture that succeeds without
+a verifier is **not** an error (exit 0): it reports the gap in `message` and a
+`suggested_commands` entry showing how to add one.
 
 ## Coding Style & Naming Conventions
 

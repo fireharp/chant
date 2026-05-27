@@ -96,24 +96,26 @@ pre-commit hooks and agents can decide what to do next without parsing prose.
 The full field table is in the [project README](../README.md#json-outcome-contract);
 the source of truth is
 [`internal/outcome/outcome.go`](../internal/outcome/outcome.go). Unset fields
-are omitted so each subcommand's payload stays focused.
-
-> **Flag ordering:** chant uses Go's `flag` package, which stops parsing flags
-> at the first non-flag argument. For commands that take a positional recipe id
-> (`verify`, `run`, `explain`, `invalidate`), put `--json` **before** the id:
-> `chant verify --json <id>`.
+are omitted so each subcommand's payload stays focused. Flags work in any
+position — before or after a positional recipe id. Errors under `--json` are
+part of the contract too: a failing command prints
+`{"subcommand", "blocking_error": true, "message"}` to stdout and exits 1.
 
 ---
 
 ## Enchantment metadata & reuse
 
-A planned, fully backward-compatible metadata layer extends the recipe card with
-provenance, a `project → domain → universal` scope ladder, a content-addressed
-`spell_hash` identity, typed relations (reusing coherence's edge vocabulary), and
-cross-package discovery via a local registry. The canonical design is
-[`specs/enchantment-metadata.md`](specs/enchantment-metadata.md). Only the fields
-listed on each command page and in the README recipe-card table are emitted by
-the CLI **today**; the metadata model is **planned/spec**.
+`chant capture` writes a fully backward-compatible metadata layer onto every
+recipe card. **Available now**, emitted automatically: a content-addressed
+`spell_hash` identity, `provenance` (`origin` / `captured_at` / `author`),
+`scope: project` (the first rung of the universality ladder), and `portability`
+(`determinism`, `input_contract.required_columns_any` from `--columns`,
+`requires.runtime` from `--language`). Two capture flags drive it: `--author`
+and `--columns`. **Still planned:** the cross-package registry,
+`chant suggest --global` / `chant import`, scope promotion
+(`project → domain → universal`), and typed relations reusing coherence's edge
+vocabulary. The canonical design is
+[`specs/enchantment-metadata.md`](specs/enchantment-metadata.md).
 
 ---
 

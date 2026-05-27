@@ -18,10 +18,9 @@ doesn't surface for a query.
 |---|---|---|
 | `--json` | false | emit hits as the JSON outcome contract. |
 
-The query is the positional argument(s). **Put `--json` before the query**
-(`chant search --json "revenue by channel"`) — Go's `flag` package stops parsing
-at the first non-flag argument, so a trailing `--json` is absorbed into the query
-text and ignored.
+The query is the positional argument(s); the `--json` flag works in any position
+(`chant search "revenue by channel" --json` and `chant search --json "revenue by
+channel"` are equivalent).
 
 ## Example (human)
 
@@ -32,21 +31,24 @@ chant search "revenue by channel"
 ```text
 ranked recipes for "revenue by channel":
   0.70  csv-revenue-by-channel         (lex 1.00, signal 0.00, ok 1.00)
+  0.20  refund-approval                (lex 0.00, signal 0.00, ok 1.00)
 ```
 
-The breakdown columns are the three scorer terms: `lex` (lexical overlap),
-`signal` (file/column structural match — `0.00` here because `search` passes no
-files/columns), and `ok` (verifier success rate).
+`search` ranks **every** recipe regardless of threshold, so low-scoring recipes
+appear too. The breakdown columns are the three scorer terms: `lex` (lexical
+overlap), `signal` (file/column structural match — `0.00` here because `search`
+passes no files/columns), and `ok` (verifier success rate).
 
 ## Example (JSON)
 
 ```bash
-chant search --json "revenue by channel"
+chant search "revenue by channel" --json
 ```
 
 ```json
 {
   "subcommand": "search",
+  "match_found": false,
   "hits": [
     {
       "id": "csv-revenue-by-channel",
@@ -68,9 +70,10 @@ chant search --json "revenue by channel"
 
 ## JSON shape
 
-`subcommand: "search"`, `hits[]` (every recipe, ranked, same `Hit` shape as
-`suggest`), and `trusted: false`. There is no `match_found` field — `search`
-does not gate on the threshold. See the
+`subcommand: "search"`, `match_found` (always present; reflects whether any hit
+clears the retrieval threshold), `hits[]` (every recipe, ranked, same `Hit`
+shape as `suggest`), and `trusted: false`. Unlike `suggest`, `search` does not
+*filter* on the threshold — it ranks the whole library. See the
 [outcome contract](../README.md#json-outcome-contract).
 
 ## `search` vs `suggest`

@@ -24,9 +24,8 @@ input the command fails fast rather than running half-formed.
 | `--timeout` | `60s` | command timeout (Go duration). |
 | `--json` | false | emit the JSON outcome contract. |
 
-The recipe id is a positional argument. **Put flags before the id**
-(`chant run --json --input k=v <id>`) — Go's `flag` package stops parsing at the
-first non-flag argument.
+The recipe id is a positional argument; flags work in any position
+(`chant run <id> --json` and `chant run --json <id>` are equivalent).
 
 ## Example (human)
 
@@ -47,18 +46,19 @@ chant run --input input=examples/orders_shopify.csv csv-revenue-by-channel
 ## Example (JSON)
 
 ```bash
-chant run --json --input input=examples/orders_shopify.csv csv-revenue-by-channel
+chant run csv-revenue-by-channel --input input=examples/orders_shopify.csv --json
 ```
 
 ```json
 {
   "subcommand": "run",
+  "match_found": false,
   "recipe_id": "csv-revenue-by-channel",
   "version": 1,
   "executed": true,
   "exit_code": 0,
   "trusted": false,
-  "runtime_ms": 26,
+  "runtime_ms": 70,
   "recommended_next_command": "chant verify csv-revenue-by-channel"
 }
 ```
@@ -68,9 +68,12 @@ non-zero exit code makes `chant run` exit 1.
 
 ## JSON shape
 
-`subcommand: "run"`, `recipe_id`, `version`, `executed: true`, `exit_code`,
-`trusted: false`, `runtime_ms`, and `recommended_next_command` (`chant verify
-<id>`). See the [outcome contract](../README.md#json-outcome-contract).
+`subcommand: "run"`, `match_found` (always present, `false`), `recipe_id`,
+`version`, `executed: true`, `exit_code`, `trusted: false`, `runtime_ms`, and
+`recommended_next_command` (`chant verify <id>`). A command-level failure
+(unknown recipe, unresolved `{{var}}`) returns the error contract instead:
+`{"subcommand": "run", "blocking_error": true, "message"}` on stdout, exit 1.
+See the [outcome contract](../README.md#json-outcome-contract).
 
 ## When to use `run` vs `verify`
 

@@ -22,9 +22,9 @@ lifecycle; `verify` is the (re-)promotion half.
 | `--reason` | empty | a note appended to the status message explaining why. |
 | `--json` | false | emit the JSON outcome contract. |
 
-The recipe id is the positional argument. **Put flags before the id**
-(`chant invalidate --json <id>`) — Go's `flag` package stops parsing at the
-first non-flag argument.
+The recipe id is the positional argument; flags work in any position
+(`chant invalidate <id> --json` and `chant invalidate --json <id>` are
+equivalent).
 
 ## Example (JSON)
 
@@ -35,6 +35,7 @@ chant invalidate --json hello-echo
 ```json
 {
   "subcommand": "invalidate",
+  "match_found": false,
   "recipe_id": "hello-echo",
   "exit_code": 0,
   "trusted": false,

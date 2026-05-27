@@ -103,23 +103,48 @@ candidate, not a blessing. Follow the `reuse_command`:
 ```json
 {
   "subcommand": "verify",
+  "match_found": false,
   "recipe_id": "csv-revenue-by-channel",
   "version": 1,
   "executed": true,
   "exit_code": 0,
   "verifier_ran": true,
   "trusted": true,
+  "runtime_ms": 126,
   "message": "verifier passed — result is trusted"
 }
 ```
 
 `trusted: true` only now, after the verifier ran and passed. That is the whole
-thesis in two commands.
+thesis in two commands. (`chant verify <id> --json` and `chant verify --json
+<id>` are equivalent — flags work in any position.)
 
-> **Flag ordering:** chant uses Go's `flag` package, which stops parsing flags
-> at the first non-flag argument. For commands that take a positional recipe id
-> (`verify`, `run`, `explain`, `invalidate`), put `--json` (and other flags)
-> **before** the id: `chant verify --json <id>`, not `chant verify <id> --json`.
+## Capture your own recipe
+
+After an agent solves a recurring task, capture the procedure so the next
+similar task reuses it. A recipe runs **inside its own directory**
+(`recipes/<id>/`), so any script the `command` or `verifier` references must
+live there — `--entrypoint-src <path>` copies a file into the recipe dir at
+capture time. This end-to-end walkthrough is verified working:
+
+```bash
+# 1. The procedure the agent just got working.
+printf '#!/bin/sh\necho "hello $1"\n' > hello.sh
+
+# 2. Capture it. --entrypoint-src copies hello.sh into recipes/greet/ as greet.sh,
+#    so the in-dir command and verifier can find it.
+./bin/chant capture --id greet --task "greet a name" \
+  --command 'sh greet.sh {{name}}' --entrypoint-src hello.sh --entrypoint greet.sh \
+  --verifier 'sh -c "test \"$(sh greet.sh world)\" = \"hello world\""'
+
+# 3. Verify to establish the first trust event.
+./bin/chant verify greet --input name=world
+# → ✓ greet verified — trusted
+```
+
+If you capture without copying the referenced script in (or without a
+verifier), `chant verify` will fail because the script isn't in the recipe dir —
+copy it with `--entrypoint-src`.
 
 ## Requirements
 
@@ -222,30 +247,57 @@ A recipe **without** a verifier (no `verification.command` and no
 trusted — `chant verify` errors out, and `chant doctor` warns. A hit without a
 verifier is just a guess.
 
-### Enchantment metadata & reuse (planned)
+### Enchantment metadata & reuse
 
-Today an enchantment knows how to solve one task in one repo. A planned,
-fully backward-compatible metadata layer extends the card with **provenance**
-(where it was captured), a **scope / universality ladder**
-(`project → domain → universal`, *earned* by a verifier passing in new
-contexts, never declared), a content-addressed **`spell_hash`** identity so the
-same procedure is recognizable across repos, **typed relations** reusing
-coherence's edge vocabulary (`supersedes`, `mirrors`, `depends_on`,
-`implements`, …), and **cross-package discovery** via a local registry. The
-canonical design is [`docs/specs/enchantment-metadata.md`](docs/specs/enchantment-metadata.md).
+`chant capture` writes an additional, fully backward-compatible metadata layer
+onto every recipe card. **Available now**, emitted automatically at capture:
 
-**Available now:** the fields documented in the recipe-card table above —
-`fingerprints` content hashes, `dependencies.runtime`, `version`, `status`, and
-the `metrics` track record. The provenance/scope/`spell_hash`/relations/registry
-model is **planned/spec** and not yet emitted by the CLI; every planned field is
-optional (`omitempty`), so existing `recipe.yaml` files stay valid when it lands.
+```yaml
+spell_hash: ff9a7d644ac15c3d    # content-addressed identity of the procedure
+provenance:
+    origin: /abs/path/to/repo   # where the enchantment was captured
+    captured_at: "2026-05-27T21:35:06Z"
+    author: agent:claude        # set with --author (defaults to agent:capture)
+scope: project                  # the universality ladder starts at project
+portability:
+    determinism: deterministic
+    input_contract:
+        required_columns_any:   # populated from --columns
+            - [channel, amount]
+    requires:
+        runtime: python         # populated from --language
+```
+
+| Field | Source | Meaning |
+| --- | --- | --- |
+| `spell_hash` | computed at capture | content-addressed identity of the procedure, so the same method is recognizable even with a different id. |
+| `provenance.origin` | repo root at capture | where the enchantment was born. |
+| `provenance.captured_at` | capture time | UTC timestamp. |
+| `provenance.author` | `--author` (default `agent:capture`) | who/what captured it. |
+| `scope` | always `project` at capture | the universality ladder's first rung. |
+| `portability.determinism` | `deterministic` | how reusable the procedure is across contexts. |
+| `portability.input_contract.required_columns_any` | `--columns` | the logical columns the inputs must satisfy. |
+| `portability.requires.runtime` | `--language` | the runtime the procedure needs. |
+
+Two `chant capture` flags drive this metadata: `--author <id>` sets
+`provenance.author`, and `--columns a,b` populates
+`portability.input_contract.required_columns_any` (it also feeds the recipe's
+column-alias signal). The canonical design — including the parts still
+**planned** — is [`docs/specs/enchantment-metadata.md`](docs/specs/enchantment-metadata.md).
+
+**Still planned:** the cross-package **registry**, `chant suggest --global` and
+`chant import` for discovering foreign enchantments, **scope promotion**
+(`project → domain → universal`, earned by a verifier passing in new contexts),
+and **typed relations** reusing coherence's edge vocabulary (`supersedes`,
+`mirrors`, `depends_on`, `implements`, …). Every metadata field is optional
+(`omitempty`), so a hand-written `recipe.yaml` with no metadata stays valid.
 
 ## Command reference
 
 ```bash
 # Lifecycle (the agent hook surface)
 chant suggest --task "..." [--files a,b] [--columns a,b] [--json]   # find a reusable recipe before writing code
-chant capture --id <id> --task "..." --command "..." [--verifier "..."] [--json]   # distill solved work into a recipe
+chant capture --id <id> --task "..." --command "..." [--verifier "..."] [--entrypoint-src path] [--columns a,b] [--author id] [--json]   # distill solved work into a recipe
 chant run <id> [--input k=v ...] [--timeout 60s] [--json]          # execute a recipe (never sets trusted)
 chant verify <id> [--input k=v ...] [--run=false] [--json]         # run + verify; only a pass is "trusted"
 
@@ -267,10 +319,8 @@ chant help
 
 The committed library lives under `recipes/`. Runtime state (the index, run
 logs, `STATUS.md`) lives under `.chant/`, which is gitignored. One page per
-command is in [`docs/commands/`](docs/README.md).
-
-> Flags that follow a positional recipe id are not parsed (Go `flag` semantics).
-> Use `chant <cmd> --json <id>`.
+command is in [`docs/commands/`](docs/README.md). Flags may appear in any
+position — before or after a positional recipe id both work.
 
 ## JSON outcome contract
 
@@ -283,7 +333,7 @@ fields are omitted, so each subcommand's payload stays focused.
 | Field | Type | Emitted by | Meaning |
 | --- | --- | --- | --- |
 | `subcommand` | string | all | which command produced this payload (`suggest`, `capture`, `run`, `verify`, `invalidate`, `search`). |
-| `match_found` | bool | `suggest` | a candidate above the retrieval threshold exists. |
+| `match_found` | bool | all | a candidate above the retrieval threshold exists. Always present (`false` too) so a consumer never has to distinguish "no match" from "field absent". |
 | `hits` | `[]Hit` | `suggest`, `search` | ranked recipe candidates (see below). |
 | `recipe_id` | string | `run`, `verify`, `capture`, `invalidate` | the recipe acted on. |
 | `version` | int | `run`, `verify`, `capture` | the recipe version. |
@@ -294,10 +344,10 @@ fields are omitted, so each subcommand's payload stays focused.
 | `runtime_ms` | int | `run`, `verify` | wall-clock duration of the execution. |
 | `captured` | bool | `capture` | a new recipe was written. |
 | `stale` | bool | `invalidate` | the recipe was marked stale. |
-| `message` | string | most | a human-readable status line. |
+| `message` | string | most | a human-readable status line (and the error text when `blocking_error` is set). |
 | `recommended_next_command` | string | most | the exact command to run next (verifier-first). |
-| `blocking_error` | bool | reserved | present in the contract for parity with coherence. |
-| `suggested_commands` | `[]string` | reserved | present in the contract for parity with coherence. |
+| `blocking_error` | bool | any error | `true` when the command failed under `--json` (see error contract below). |
+| `suggested_commands` | `[]string` | `capture` | shell commands the result recommends — e.g. how to add a missing verifier after a capture without one. |
 | `llm_calls_avoided` | int | reserved | a reuse-win estimate carried on the recipe. |
 
 Each `Hit` in `hits[]`:
@@ -316,6 +366,40 @@ Each `Hit` in `hits[]`:
 The recommended agent loop reads three fields and never parses prose:
 `match_found` → pick `hits[0]` → run its `reuse_command` → trust iff
 `trusted: true`.
+
+### Error contract
+
+Under `--json`, errors are part of the contract too. A command that fails prints
+a JSON object to **stdout** (not prose on stderr) and exits 1:
+
+```json
+{
+  "subcommand": "verify",
+  "blocking_error": true,
+  "message": "recipe \"nonexistent\" not found"
+}
+```
+
+So a `--json` consumer always gets parseable JSON — success or failure — and can
+gate on `blocking_error`. A capture that succeeds but has no verifier is **not**
+an error (it exits 0); it instead reports the gap in `message` and
+`suggested_commands`:
+
+```json
+{
+  "subcommand": "capture",
+  "match_found": false,
+  "recipe_id": "noverify",
+  "version": 1,
+  "captured": true,
+  "trusted": false,
+  "message": "captured WITHOUT a verifier — reuse cannot be trusted until you add one",
+  "suggested_commands": [
+    "chant capture --id noverify --force --verifier \"<cmd>\" ..."
+  ],
+  "recommended_next_command": "chant verify noverify"
+}
+```
 
 ## chant.yml configuration
 

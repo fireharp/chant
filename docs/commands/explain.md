@@ -15,9 +15,8 @@ metrics. With `--json` it emits the full recipe struct.
 |---|---|---|
 | `--json` | false | emit the full recipe struct as JSON. |
 
-The recipe id is the positional argument. **Put `--json` before the id**
-(`chant explain --json <id>`) — Go's `flag` package stops parsing at the first
-non-flag argument.
+The recipe id is the positional argument; flags work in any position
+(`chant explain <id> --json` and `chant explain --json <id>` are equivalent).
 
 ## Example (human)
 
@@ -56,49 +55,60 @@ chant explain --json csv-revenue-by-channel
 
 ```json
 {
-  "ID": "csv-revenue-by-channel",
-  "Version": 1,
-  "Kind": "executable_recipe",
-  "Description": "Compute ecommerce revenue by channel from CSV-like exports, robust to column-name drift across Shopify/Stripe/custom exports.",
-  "WhenToUse": {
-    "TaskPatterns": [
+  "dependencies": {
+    "runtime": "python: >=3.8"
+  },
+  "description": "Compute ecommerce revenue by channel from CSV-like exports, robust to column-name drift across Shopify/Stripe/custom exports.",
+  "examples": [
+    {
+      "input": "examples/orders_shopify.csv",
+      "output": "revenue_by_channel.json"
+    }
+  ],
+  "id": "csv-revenue-by-channel",
+  "invalidation": {
+    "if_columns_missing": true,
+    "if_tests_fail": true
+  },
+  "kind": "executable_recipe",
+  "metrics": {
+    "last_success_at": "2026-05-27T21:34:59Z",
+    "runs": 1
+  },
+  "status": "active",
+  "verification": {
+    "command": "python3 test_recipe.py",
+    "expected_artifacts": ["revenue_by_channel.json"]
+  },
+  "version": 1,
+  "what_to_do": {
+    "command": "python3 run.py {{input}}",
+    "entrypoint": "run.py",
+    "language": "python"
+  },
+  "when_to_use": {
+    "input_signals": {
+      "columns_any": [
+        ["channel", "source", "utm_source"],
+        ["revenue", "amount", "price", "total"]
+      ],
+      "files": ["*.csv"]
+    },
+    "tags": ["csv", "ecommerce", "revenue", "analytics"],
+    "task_patterns": [
       "compute revenue by channel from csv",
       "analyze ecommerce orders export",
       "revenue breakdown by marketing channel"
-    ],
-    "Tags": ["csv", "ecommerce", "revenue", "analytics"],
-    "InputSignals": {
-      "Files": ["*.csv"],
-      "ColumnsAny": [
-        ["channel", "source", "utm_source"],
-        ["revenue", "amount", "price", "total"]
-      ]
-    }
-  },
-  "WhatToDo": {
-    "Entrypoint": "run.py",
-    "Command": "python3 run.py {{input}}",
-    "Language": "python"
-  },
-  "Verification": {
-    "Command": "python3 test_recipe.py",
-    "ExpectedArtifacts": ["revenue_by_channel.json"]
-  },
-  "Invalidation": {"IfTestsFail": true, "IfColumnsMissing": true, "IfDependencyChange": false},
-  "Dependencies": {"Runtime": "python: >=3.8", "Packages": null},
-  "Fingerprints": {"RecipeCodeHash": "", "VerifierHash": "", "SchemaFingerprint": ""},
-  "Examples": [{"Input": "examples/orders_shopify.csv", "Output": "revenue_by_channel.json"}],
-  "Metrics": {"Runs": 4, "Failures": 0, "LastSuccessAt": "2026-05-27T21:12:50Z", "LastFailureAt": ""},
-  "Status": "active"
+    ]
+  }
 }
 ```
 
 ## JSON shape
 
-> **Note:** `explain --json` serializes the raw Go `recipe.Recipe` struct, whose
-> fields carry only `yaml` tags. JSON marshalling therefore uses the Go field
-> names (`ID`, `WhenToUse`, `WhatToDo`, …) rather than the `snake_case` keys you
-> see in `recipe.yaml`. This is the one command whose JSON does **not** follow
-> the `snake_case` outcome-contract convention. To read the card in its on-disk
-> form, open the `recipe.yaml` directly or use `chant list --json` for the
-> indexed summary.
+`explain --json` emits the recipe card in its on-disk `snake_case` form — it
+round-trips through the same representation as `recipe.yaml`, so the JSON keys
+match the card's YAML keys (`id`, `when_to_use`, `what_to_do`, `verification`,
+…). Empty/zero fields are omitted (e.g. a recipe with no recorded failures has
+no `failures` key, and an empty `fingerprints` block is dropped). For the
+indexed summary instead of the full card, use `chant list --json`.

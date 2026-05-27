@@ -27,10 +27,8 @@ accept`, never `retrieve → trust`.
 | `--timeout` | `60s` | timeout for the procedure and verifier (Go duration). |
 | `--json` | false | emit the JSON outcome contract. |
 
-The recipe id is a positional argument. **Put flags before the id**
-(`chant verify --json <id>`) — Go's `flag` package stops parsing at the first
-non-flag argument, so `chant verify <id> --json` runs in human mode and ignores
-the trailing flag.
+The recipe id is a positional argument; flags work in any position
+(`chant verify <id> --json` and `chant verify --json <id>` are equivalent).
 
 If the recipe has `examples`, the first example's `input` is used as the default
 `{{input}}` and `{{input_file}}` when those inputs are not supplied. A recipe
@@ -40,18 +38,20 @@ trust cannot be established.
 ## Example — pass (JSON)
 
 ```bash
-chant verify --json csv-revenue-by-channel
+chant verify csv-revenue-by-channel --json
 ```
 
 ```json
 {
   "subcommand": "verify",
+  "match_found": false,
   "recipe_id": "csv-revenue-by-channel",
   "version": 1,
   "executed": true,
   "exit_code": 0,
   "verifier_ran": true,
   "trusted": true,
+  "runtime_ms": 126,
   "message": "verifier passed — result is trusted"
 }
 ```
@@ -78,9 +78,13 @@ is NOT trusted; repair or invalidate"`, and
 
 ## JSON shape
 
-`subcommand: "verify"`, `recipe_id`, `version`, `executed`, `verifier_ran:
-true`, `exit_code`, `trusted` (the verdict), `runtime_ms`, `message`, and — on
-failure — `recommended_next_command`. See the
+`subcommand: "verify"`, `match_found` (always present, `false`), `recipe_id`,
+`version`, `executed`, `verifier_ran: true`, `exit_code`, `trusted` (the
+verdict), `runtime_ms`, `message`, and — on a verifier failure —
+`recommended_next_command`. A verifier *failure* is a normal payload with
+`trusted: false`, not an error. A command-level failure (unknown recipe, no
+verifier configured) instead returns the error contract — `{"subcommand":
+"verify", "blocking_error": true, "message"}` on stdout, exit 1. See the
 [outcome contract](../README.md#json-outcome-contract).
 
 ## Trust semantics
