@@ -228,6 +228,7 @@ func cmdCapture(args []string) error {
 	patterns := fs.String("patterns", "", "comma-separated extra task patterns")
 	fileSignals := fs.String("file-signals", "", "comma-separated input file globs")
 	columns := fs.String("columns", "", "comma-separated required column aliases (one alias group)")
+	domains := fs.String("domains", "", "comma-separated domain labels (drive scope promotion; see spec §5)")
 	author := fs.String("author", "", "provenance author (defaults to agent:capture)")
 	force := fs.Bool("force", false, "overwrite an existing recipe")
 	asJSON := fs.Bool("json", false, "emit JSON outcome contract")
@@ -333,7 +334,12 @@ func cmdCapture(args []string) error {
 
 	// Default to project scope; promotion is earned via verified_in (spec §5).
 	if r.Scope == "" {
-		r.Scope = "project"
+		r.Scope = recipe.ScopeProject
+	}
+	// Domains feed scope promotion (spec §5): without ≥1 domain label the
+	// recipe is capped at project regardless of how many contexts verify it.
+	if doms := splitCSV(*domains); len(doms) > 0 {
+		r.Domains = doms
 	}
 
 	// Portability contract: determinism is best-effort (a recipe with a
@@ -664,6 +670,41 @@ func cmdVerify(args []string) error {
 	if trusted && r.IsStale() {
 		r.Status = "active" // a passing verifier re-blesses a stale recipe
 	}
+
+	// Scope promotion (spec §5 — the universality ladder): a passing verifier
+	// is evidence the recipe works in this context. Record the context (deduped
+	// by name; existing entries get their At timestamp refreshed), then
+	// recompute the earned scope. Promotion is NEVER demotion here — a recipe
+	// keeps a higher Scope even if ComputeScope would currently report lower.
+	var promotion *outcome.ScopePromotion
+	if trusted {
+		ctx := recipe.DetectContext(s.Root)
+		if r.RecordVerifiedContext(ctx, time.Now()) {
+			oldScope := r.Scope
+			if oldScope == "" {
+				oldScope = recipe.ScopeProject
+			}
+			newScope := recipe.MaxScope(oldScope, recipe.ComputeScope(r))
+			if newScope != oldScope {
+				r.Scope = newScope
+				distinct := len(distinctVerifiedContexts(r.VerifiedIn))
+				promotion = &outcome.ScopePromotion{
+					Old:      oldScope,
+					New:      newScope,
+					Contexts: distinct,
+				}
+				// Stderr note for non-JSON callers (humans/hooks tailing
+				// stderr). JSON consumers read outcome.scope_promotion below.
+				// Emitted only when NOT in --json mode so combined-output test
+				// harnesses still get parseable JSON on stdout.
+				if !*asJSON {
+					fmt.Fprintf(os.Stderr, "scope promoted: %s → %s after verifier passed in %d contexts\n",
+						oldScope, newScope, distinct)
+				}
+			}
+		}
+	}
+
 	_ = r.Save()
 	_, _ = s.WriteIndex()
 	logRun(s, r, inputs, res, true, trusted)
@@ -672,6 +713,7 @@ func cmdVerify(args []string) error {
 		Subcommand: "verify", RecipeID: r.ID, Version: r.Version,
 		Executed: *run, VerifierRan: true, ExitCode: res.ExitCode,
 		Trusted: trusted, RuntimeMS: res.DurationMS,
+		ScopePromotion: promotion,
 	}
 	if trusted {
 		out.Message = "verifier passed — result is trusted"
@@ -689,6 +731,9 @@ func cmdVerify(args []string) error {
 		}
 		if trusted {
 			fmt.Printf("✓ %s verified — trusted (%dms)\n", r.ID, res.DurationMS)
+			if promotion != nil {
+				fmt.Printf("→ scope promoted to %s\n", promotion.New)
+			}
 		} else {
 			fmt.Printf("✗ %s NOT verified — do not trust this result.\n", r.ID)
 			if res.Stderr != "" {
@@ -1121,6 +1166,108 @@ func cmdBench(args []string) error {
 	}
 	if failed > 0 {
 		os.Exit(1)
+	}
+	return nil
+}
+
+// distinctVerifiedContexts returns the deduped non-empty Context values from
+// a verified_in list — used for outcome reporting (the count of contexts that
+// earned the recipe its scope). The scope.go internals also dedupe; this is a
+// command-layer mirror so cmdVerify / cmdPromote can report the same number
+// without exporting the internal helper.
+func distinctVerifiedContexts(vs []recipe.VerifiedContext) []string {
+	seen := make(map[string]struct{}, len(vs))
+	var out []string
+	for _, v := range vs {
+		c := strings.TrimSpace(v.Context)
+		if c == "" {
+			continue
+		}
+		if _, ok := seen[c]; ok {
+			continue
+		}
+		seen[c] = struct{}{}
+		out = append(out, c)
+	}
+	return out
+}
+
+// ---- promote ----
+
+// cmdPromote recomputes a recipe's scope from its current verified_in evidence
+// WITHOUT re-running the verifier. Useful after editing Domains or to backfill
+// scope on existing recipes. It is read-and-recompute, not a gate: exit 0
+// always, even when the recipe stays at its current scope.
+//
+// Scope promotion is "earned, not declared" (spec §5), so promote NEVER lowers
+// the recipe's scope here either: explicit demotion lives in invalidate. If
+// ComputeScope returns a lower scope than what's recorded, we keep the higher
+// one and report no change.
+func cmdPromote(args []string) error {
+	fs := flag.NewFlagSet("promote", flag.ContinueOnError)
+	asJSON := fs.Bool("json", false, "emit JSON outcome contract")
+	positionals, err := parseFlags(fs, args)
+	if err != nil {
+		return err
+	}
+	if len(positionals) == 0 {
+		return fmt.Errorf("promote requires a recipe id")
+	}
+	s, err := openStore()
+	if err != nil {
+		return err
+	}
+	r, err := s.Get(positionals[0])
+	if err != nil {
+		return err
+	}
+
+	oldScope := r.Scope
+	if oldScope == "" {
+		oldScope = recipe.ScopeProject
+	}
+	earned := recipe.ComputeScope(r)
+	newScope := recipe.MaxScope(oldScope, earned)
+	changed := newScope != oldScope
+	if changed {
+		r.Scope = newScope
+		if err := r.Save(); err != nil {
+			return err
+		}
+		_, _ = s.WriteIndex()
+	}
+	contexts := distinctVerifiedContexts(r.VerifiedIn)
+
+	out := outcome.Outcome{
+		Subcommand:    "promote",
+		RecipeID:      r.ID,
+		Version:       r.Version,
+		Scope:         newScope,
+		OldScope:      oldScope,
+		ContextsCount: len(contexts),
+	}
+	if changed {
+		out.Message = fmt.Sprintf("scope promoted: %s → %s (recomputed from %d context(s))",
+			oldScope, newScope, len(contexts))
+		out.ScopePromotion = &outcome.ScopePromotion{
+			Old:      oldScope,
+			New:      newScope,
+			Contexts: len(contexts),
+		}
+	} else {
+		out.Message = fmt.Sprintf("scope unchanged: %s (%d verified context(s))",
+			newScope, len(contexts))
+	}
+
+	if *asJSON {
+		return emitJSON(out)
+	}
+	if changed {
+		fmt.Printf("→ %s scope promoted: %s → %s (recomputed from %d context(s))\n",
+			r.ID, oldScope, newScope, len(contexts))
+	} else {
+		fmt.Printf("%s scope unchanged: %s (%d verified context(s))\n",
+			r.ID, newScope, len(contexts))
 	}
 	return nil
 }

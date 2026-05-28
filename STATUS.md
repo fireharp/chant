@@ -44,18 +44,17 @@ docs/ evidence/       command reference + specs + user stories · iteration ledg
 | Verifier-first trust gate | ✅ (locked by tests) |
 | Deterministic retrieval (lexical + signals + success-rate) | ✅ |
 | Enchantment metadata (spell_hash, provenance, scope, portability) | ✅ capture populates them |
-| Demos | ✅ `csv-revenue-by-channel` (schema-drift-robust), `refund-approval` (BitGN policy + security no-leak verifier) |
+| Demos | ✅ `csv-revenue-by-channel` (schema-drift-robust), `refund-approval` (BitGN policy + security no-leak verifier), `count-rule-policy` (today-date-gated policy + exact-format `<COUNT:%d>` token, BitGN t09-t12) |
 | Tests | ✅ `go test ./...` green across all packages |
-| Bench | ✅ 15 scenarios (8 retrieval incl. score/stale assertions, 7 e2e incl. isolated negative gates) |
-| Docs | ✅ README, AGENTS, 13 command pages, spec, 23 user stories, scenario catalog — reconciled to the binary |
+| Bench | ✅ 16 scenarios (8 retrieval incl. score/stale assertions, 8 e2e incl. isolated negative gates + all three live demos) |
+| Docs | ✅ README, AGENTS, 14 command pages, spec, 23 user stories, scenario catalog, BitGN integration guide — reconciled to the binary |
 | CI + release | ✅ gofmt/vet/test/bench gate; release-please cross-builds installable tarballs |
 | JSON outcome contract | ✅ incl. blocking_error on error paths; always-present match_found |
 | Cross-package registry | ✅ `index` upserts to a per-machine registry; `suggest --global` surfaces foreign enchantments by `spell_hash`; `import` copies one locally (verifier-first — import ≠ trust) |
+| Scope promotion (project→domain→universal) | ✅ `chant verify` auto-records the current context into `verified_in` and promotes scope from earned evidence (spec §5); `chant promote` recomputes from current evidence without re-running the verifier |
 
 ## In progress / roadmap
 
-- **Scope promotion** (spec §5): earn project → domain → universal from
-  verified-in-N-contexts evidence; `chant promote`.
 - **Typed relations** surfaced/queried (supersedes/mirrors/depends_on/implements).
 - **Optional semantic retrieval** pass (gated like coherence's LLM pass).
 - **BitGN integration**: capture the refund/count-rule/catalog solvers as

@@ -32,6 +32,15 @@ type Hit struct {
 	SpellHash string `json:"spell_hash,omitempty"`
 }
 
+// ScopePromotion is emitted on a verify (or promote) call that earned the
+// recipe a higher scope (spec §5 — the universality ladder). It is purely
+// informational: agents that don't care about scope can ignore it.
+type ScopePromotion struct {
+	Old      string `json:"old"`
+	New      string `json:"new"`
+	Contexts int    `json:"contexts"`
+}
+
 // Outcome is the union shape emitted by chant subcommands with --json. Unset
 // fields are omitted so each subcommand's payload stays focused.
 type Outcome struct {
@@ -54,6 +63,15 @@ type Outcome struct {
 	RuntimeMS int64 `json:"runtime_ms,omitempty"`
 	// LLMCallsAvoided is a reuse-win estimate carried on the recipe.
 	LLMCallsAvoided int `json:"llm_calls_avoided,omitempty"`
+
+	// ScopePromotion is set only when a verify (or promote) earned the
+	// recipe a higher scope. Optional; absent by default.
+	ScopePromotion *ScopePromotion `json:"scope_promotion,omitempty"`
+
+	// promote (recompute-from-evidence)
+	Scope         string `json:"scope,omitempty"`
+	OldScope      string `json:"old_scope,omitempty"`
+	ContextsCount int    `json:"contexts_count,omitempty"`
 
 	// capture
 	Captured bool `json:"captured,omitempty"`

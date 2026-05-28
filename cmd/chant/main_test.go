@@ -24,10 +24,19 @@ func buildBinary(t *testing.T) string {
 // run executes the chant binary in dir and returns combined stdout, exit code.
 func run(t *testing.T, bin, dir string, args ...string) (string, int) {
 	t.Helper()
+	return runEnv(t, bin, dir, nil, args...)
+}
+
+// runEnv executes the chant binary in dir with extra env vars (in K=V form)
+// merged onto the current environment, returning combined stdout+stderr +
+// exit code. Used by scope-promotion tests that need to set CHANT_CONTEXT.
+func runEnv(t *testing.T, bin, dir string, extraEnv []string, args ...string) (string, int) {
+	t.Helper()
 	cmd := exec.Command(bin, args...)
 	cmd.Dir = dir
 	// Hermetic: a clean-ish env, no network needed by any tested command.
 	cmd.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1")
+	cmd.Env = append(cmd.Env, extraEnv...)
 	out, err := cmd.CombinedOutput()
 	code := 0
 	if ee, ok := err.(*exec.ExitError); ok {
@@ -306,6 +315,124 @@ func TestCLI_SuggestEmptyLibraryMatchFound(t *testing.T) {
 	}
 	if !strings.Contains(out, `"match_found"`) {
 		t.Errorf("match_found missing from empty-library suggest --json:\n%s", out)
+	}
+}
+
+// TestCLI_ScopePromotion: a recipe captured with --domains earns "domain"
+// scope after a passing verify in two distinct CHANT_CONTEXT values, and the
+// second verify reports the promotion in its JSON outcome (spec §5).
+func TestCLI_ScopePromotion(t *testing.T) {
+	bin := buildBinary(t)
+	repo := newRepo(t)
+
+	// Capture with two domain labels so cluster signals exist. Use a verifier
+	// that always passes so verify can establish trust.
+	if _, code := run(t, bin, repo,
+		"capture", "--id", "scopey", "--task", "promote me",
+		"--command", "echo run", "--verifier", "sh -c true",
+		"--domains", "csv,ecommerce", "--json"); code != 0 {
+		t.Fatal("capture failed")
+	}
+
+	// First verify in context "ctx-a": still project (1 distinct context).
+	out, code := runEnv(t, bin, repo, []string{"CHANT_CONTEXT=ctx-a"}, "verify", "--json", "scopey")
+	if code != 0 {
+		t.Fatalf("verify(ctx-a) exit %d:\n%s", code, out)
+	}
+	var v1 struct {
+		Trusted        bool `json:"trusted"`
+		ScopePromotion *struct {
+			Old, New string
+			Contexts int
+		} `json:"scope_promotion,omitempty"`
+	}
+	if err := json.Unmarshal([]byte(out), &v1); err != nil {
+		t.Fatalf("verify(ctx-a) JSON parse: %v\n%s", err, out)
+	}
+	if !v1.Trusted {
+		t.Fatal("first verify not trusted")
+	}
+	if v1.ScopePromotion != nil {
+		t.Errorf("first verify reported scope_promotion %+v; want none (still project)", v1.ScopePromotion)
+	}
+
+	// Second verify in context "ctx-b": should promote project → domain.
+	out, code = runEnv(t, bin, repo, []string{"CHANT_CONTEXT=ctx-b"}, "verify", "--json", "scopey")
+	if code != 0 {
+		t.Fatalf("verify(ctx-b) exit %d:\n%s", code, out)
+	}
+	var v2 struct {
+		Trusted        bool `json:"trusted"`
+		ScopePromotion *struct {
+			Old      string `json:"old"`
+			New      string `json:"new"`
+			Contexts int    `json:"contexts"`
+		} `json:"scope_promotion,omitempty"`
+	}
+	if err := json.Unmarshal([]byte(out), &v2); err != nil {
+		t.Fatalf("verify(ctx-b) JSON parse: %v\n%s", err, out)
+	}
+	if !v2.Trusted {
+		t.Fatal("second verify not trusted")
+	}
+	if v2.ScopePromotion == nil {
+		t.Fatalf("second verify did NOT report scope_promotion:\n%s", out)
+	}
+	if v2.ScopePromotion.Old != "project" || v2.ScopePromotion.New != "domain" {
+		t.Errorf("promotion = %s → %s, want project → domain", v2.ScopePromotion.Old, v2.ScopePromotion.New)
+	}
+	if v2.ScopePromotion.Contexts != 2 {
+		t.Errorf("promotion contexts = %d, want 2", v2.ScopePromotion.Contexts)
+	}
+
+	// The recipe.yaml on disk records the new scope and both contexts.
+	b, err := os.ReadFile(filepath.Join(repo, "recipes", "scopey", "recipe.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	card := string(b)
+	if !strings.Contains(card, "scope: domain") {
+		t.Errorf("recipe card did not record scope=domain:\n%s", card)
+	}
+	if !strings.Contains(card, "ctx-a") || !strings.Contains(card, "ctx-b") {
+		t.Errorf("recipe card missing one of the verified contexts:\n%s", card)
+	}
+
+	// Third verify in the SAME context as the second: no further promotion
+	// (already domain; needs 3 contexts AND 2 domains for universal).
+	out, code = runEnv(t, bin, repo, []string{"CHANT_CONTEXT=ctx-b"}, "verify", "--json", "scopey")
+	if code != 0 {
+		t.Fatalf("verify(ctx-b dup) exit %d:\n%s", code, out)
+	}
+	var v3 struct {
+		ScopePromotion *json.RawMessage `json:"scope_promotion,omitempty"`
+	}
+	if err := json.Unmarshal([]byte(out), &v3); err != nil {
+		t.Fatalf("verify(ctx-b dup) JSON parse: %v\n%s", err, out)
+	}
+	if v3.ScopePromotion != nil {
+		t.Errorf("re-verify in same context spuriously promoted again: %s", string(*v3.ScopePromotion))
+	}
+
+	// And `chant promote` reports the current scope/old_scope as equal.
+	out, code = run(t, bin, repo, "promote", "scopey", "--json")
+	if code != 0 {
+		t.Fatalf("promote exit %d:\n%s", code, out)
+	}
+	var p struct {
+		Subcommand    string `json:"subcommand"`
+		Scope         string `json:"scope"`
+		OldScope      string `json:"old_scope"`
+		ContextsCount int    `json:"contexts_count"`
+	}
+	if err := json.Unmarshal([]byte(out), &p); err != nil {
+		t.Fatalf("promote JSON parse: %v\n%s", err, out)
+	}
+	if p.Subcommand != "promote" || p.Scope != "domain" || p.OldScope != "domain" {
+		t.Errorf("promote outcome = %+v, want subcommand=promote scope=domain old_scope=domain", p)
+	}
+	if p.ContextsCount != 2 {
+		t.Errorf("promote contexts_count = %d, want 2", p.ContextsCount)
 	}
 }
 

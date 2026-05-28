@@ -46,6 +46,8 @@ func main() {
 		err = cmdVerify(args)
 	case "invalidate":
 		err = cmdInvalidate(args)
+	case "promote":
+		err = cmdPromote(args)
 	case "index":
 		err = cmdIndex(args)
 	case "import":
@@ -108,6 +110,7 @@ Library:
   search    "<query>"        rank recipes against a query
   explain   <id>             print a recipe card
   invalidate <id>            mark a recipe stale
+  promote   <id>             recompute scope (project→domain→universal) from verified_in evidence
   import    <id|spell_hash> [--as <id>]   copy a foreign enchantment locally (then chant verify)
 
 Repo:

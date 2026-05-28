@@ -59,11 +59,18 @@ type Recipe struct {
 	// Provenance records where the enchantment came from.
 	Provenance Provenance `yaml:"provenance,omitempty"`
 	// Scope is the maturity channel: project | domain | universal (spec §5).
+	// Promotion is earned, never declared — driven by VerifiedIn evidence and
+	// Domains via ComputeScope (see scope.go). A recipe with no Domains is
+	// capped at project regardless of VerifiedIn count: without a domain
+	// label the "same domain" / "spans ≥2 domains" rules are undefined.
 	Scope string `yaml:"scope,omitempty"`
-	// Domains are discovery labels broader than tags.
+	// Domains are discovery labels broader than tags. They are also the
+	// clustering signal for scope promotion: without ≥1 domain tag a recipe
+	// can never reach `domain` or `universal` scope (see ComputeScope).
 	Domains []string `yaml:"domains,omitempty"`
 	// VerifiedIn lists distinct contexts where the verifier passed (drives
-	// scope promotion; computed, not hand-set).
+	// scope promotion; computed, not hand-set). chant verify appends to this
+	// list on a passing verifier; ComputeScope reads it.
 	VerifiedIn []VerifiedContext `yaml:"verified_in,omitempty"`
 	// Portability is the contract for moving the enchantment to another package.
 	Portability Portability `yaml:"portability,omitempty"`
