@@ -46,8 +46,9 @@ verifier passes.
 
 | Command | One-liner | Page |
 |---------|-----------|------|
-| `suggest` | Find a reusable recipe before writing new code. | [`commands/suggest.md`](commands/suggest.md) |
+| `suggest` | Find a reusable recipe before writing new code (`--global` adds the registry). | [`commands/suggest.md`](commands/suggest.md) |
 | `capture` | Distill solved work into a verified recipe. | [`commands/capture.md`](commands/capture.md) |
+| `import` | Copy a foreign enchantment from the registry into `recipes/` (then verify). | [`commands/import.md`](commands/import.md) |
 | `run` | Execute a recipe's procedure (never sets `trusted`). | [`commands/run.md`](commands/run.md) |
 | `verify` | Run the procedure + verifier; only a pass is `trusted`. | [`commands/verify.md`](commands/verify.md) |
 
@@ -65,7 +66,7 @@ verifier passes.
 | Command | One-liner | Page |
 |---------|-----------|------|
 | `init` | Scaffold `chant.yml`, `recipes/`, skill, gitignore. | [`commands/init.md`](commands/init.md) |
-| `index` | Rebuild `.chant/index.json`. | [`commands/index.md`](commands/index.md) |
+| `index` | Rebuild `.chant/index.json` and upsert into the per-machine registry (`--no-registry` to skip). | [`commands/index.md`](commands/index.md) |
 | `status` | Rewrite `.chant/STATUS.md`. | [`commands/status.md`](commands/status.md) |
 | `doctor` | Validate config + store. | [`commands/doctor.md`](commands/doctor.md) |
 | `bench` | Run the validation suite. | [`commands/bench.md`](commands/bench.md) |
@@ -84,8 +85,10 @@ retrieve → trust                                  (the failure mode chant avoi
 
 In the JSON outcome contract this surfaces as a single boolean: `trusted`. It is
 `true` **only** in a `verify` payload after a passing verifier. `suggest`,
-`search`, and `run` always report `trusted: false` — they retrieve and execute,
-they do not bless.
+`search`, `run`, and `import` always report `trusted: false` — they retrieve,
+execute, or stage, but they do not bless. Reuse from another repo follows the
+same rule: a foreign hit is `import`ed locally, then verified — never trusted on
+import.
 
 ---
 
@@ -111,10 +114,15 @@ recipe card. **Available now**, emitted automatically: a content-addressed
 `scope: project` (the first rung of the universality ladder), and `portability`
 (`determinism`, `input_contract.required_columns_any` from `--columns`,
 `requires.runtime` from `--language`). Two capture flags drive it: `--author`
-and `--columns`. **Still planned:** the cross-package registry,
-`chant suggest --global` / `chant import`, scope promotion
-(`project → domain → universal`), and typed relations reusing coherence's edge
-vocabulary. The canonical design is
+and `--columns`.
+
+This metadata powers **cross-package reuse**, also **available now**: a
+per-machine registry (`$CHANT_REGISTRY`, default `~/.chant/registry/index.json`)
+that `chant index` upserts into, `chant suggest --global` for discovering foreign
+enchantments, and `chant import` for copying one into the local library (then
+verifying it). **Still planned:** scope promotion (`project → domain →
+universal`) and typed relations reusing coherence's edge vocabulary surfaced as
+graph edges. The canonical design is
 [`specs/enchantment-metadata.md`](specs/enchantment-metadata.md).
 
 ---

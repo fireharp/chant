@@ -59,9 +59,12 @@ Use Go 1.26 or newer.
   `chant.yml`, `recipes/.gitkeep`, the `.agents/skills/chant/SKILL.md` skill,
   appends `.chant/` to `.gitignore`, and creates the `.chant/` state dir. It is
   idempotent — existing files are skipped without `--force`.
-- `./bin/chant suggest --task "..." [--files a,b] [--columns a,b] [--json]`
-  ranks the library against a task and reports candidates at or above the
-  retrieval threshold. This is the **pre-write hook**.
+- `./bin/chant suggest --task "..." [--files a,b] [--columns a,b] [--global]
+  [--json]` ranks the library against a task and reports candidates at or above
+  the retrieval threshold. This is the **pre-write hook**. `--global` also
+  searches the per-machine registry and returns foreign enchantments
+  (`global: true`, plus `origin` / `scope` / `spell_hash`), whose
+  `reuse_command` is a `chant import`.
 - `./bin/chant capture --id <id> --task "..." --command "..." [--verifier "..."]
   [--expect-artifacts a,b] [--entrypoint-src path] [--columns a,b]
   [--author id] [--tags ...] [--force] [--json]` distills solved work into a
@@ -82,7 +85,16 @@ Use Go 1.26 or newer.
   (no threshold filtering — unlike `suggest`).
 - `./bin/chant explain <id> [--json]` prints a recipe card.
 - `./bin/chant invalidate <id> [--reason ...] [--json]` marks a recipe stale.
-- `./bin/chant index [--json]` rebuilds `.chant/index.json` from the library.
+- `./bin/chant import <id|spell_hash> [--as <newid>] [--force] [--json]` copies a
+  foreign enchantment from the per-machine registry into local `recipes/` and
+  rebuilds the index. It stages, never blesses (`trusted: false`); refuses to
+  overwrite an existing local recipe without `--force`. Follow with
+  `chant verify <id>`.
+- `./bin/chant index [--no-registry] [--json]` rebuilds `.chant/index.json` from
+  the library and upserts it into the per-machine registry
+  (`$CHANT_REGISTRY`, default `~/.chant/registry/index.json`). `--no-registry`
+  skips the upsert; a non-writable registry degrades gracefully and reports
+  `registry_warning` in `--json`.
 - `./bin/chant status [--json]` rewrites `.chant/STATUS.md` (and emits the
   structured report with `--json`: `recipe_count`, `active_count`,
   `stale_count`, `total_runs`, per-recipe stats including `has_verifier`).
@@ -120,6 +132,12 @@ three load-bearing moments:
    runs inside `recipes/<slug>/`, so use `--entrypoint-src` to copy any script
    the command/verifier references into the recipe dir — otherwise verify fails
    because the file isn't there.
+
+Cross-repo reuse uses the same loop, verifier-first: `chant suggest --global`
+surfaces enchantments captured in *other* repos (populated by `chant index`'s
+registry upsert). For a foreign hit (`global: true`), run its `reuse_command`
+(`chant import <spell_hash>`) to copy it locally, **then** `chant verify` it —
+import → verify, never import → trust.
 
 The shipped skill at `.agents/skills/chant/SKILL.md` (written by `chant init`)
 encodes this loop for Codex/Claude-style agents. Agents should consume the

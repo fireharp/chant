@@ -285,19 +285,39 @@ Two `chant capture` flags drive this metadata: `--author <id>` sets
 column-alias signal). The canonical design — including the parts still
 **planned** — is [`docs/specs/enchantment-metadata.md`](docs/specs/enchantment-metadata.md).
 
-**Still planned:** the cross-package **registry**, `chant suggest --global` and
-`chant import` for discovering foreign enchantments, **scope promotion**
-(`project → domain → universal`, earned by a verifier passing in new contexts),
-and **typed relations** reusing coherence's edge vocabulary (`supersedes`,
-`mirrors`, `depends_on`, `implements`, …). Every metadata field is optional
-(`omitempty`), so a hand-written `recipe.yaml` with no metadata stays valid.
+### Cross-package reuse (the registry)
+
+This metadata powers **cross-repo discovery**, now **available**. A per-machine
+registry at `$CHANT_REGISTRY` (default `~/.chant/registry/index.json`) aggregates
+enchantments across all your repos:
+
+- `chant index` upserts the local library into the registry (skip with
+  `--no-registry`; it degrades gracefully and reports `registry_warning` if the
+  registry isn't writable).
+- `chant suggest --global` also searches the registry and returns **foreign**
+  enchantments (born in other repos), each annotated with `global: true`,
+  `origin`, `scope`, and `spell_hash`.
+- `chant import <id|spell_hash>` copies a registry enchantment's recipe dir into
+  the local `recipes/` so you can verify it here.
+
+Reuse stays verifier-first across repos: a foreign hit's `reuse_command` is
+`chant import <spell_hash>` (not `chant verify`), because a foreign enchantment
+must be **imported locally, then verified** before it is trusted. Import stages;
+the verifier still blesses. `trusted` stays `false` through suggest and import.
+
+**Still planned:** **scope promotion** (`project → domain → universal`, earned by
+a verifier passing in new contexts) and **typed relations** reusing coherence's
+edge vocabulary (`supersedes`, `mirrors`, `depends_on`, `implements`, …) surfaced
+as graph edges. Every metadata field is optional (`omitempty`), so a hand-written
+`recipe.yaml` with no metadata stays valid.
 
 ## Command reference
 
 ```bash
 # Lifecycle (the agent hook surface)
-chant suggest --task "..." [--files a,b] [--columns a,b] [--json]   # find a reusable recipe before writing code
+chant suggest --task "..." [--files a,b] [--columns a,b] [--global] [--json]   # find a reusable recipe (local + registry) before writing code
 chant capture --id <id> --task "..." --command "..." [--verifier "..."] [--entrypoint-src path] [--columns a,b] [--author id] [--json]   # distill solved work into a recipe
+chant import <id|spell_hash> [--as <newid>] [--force] [--json]   # copy a foreign enchantment from the registry into recipes/ (then verify)
 chant run <id> [--input k=v ...] [--timeout 60s] [--json]          # execute a recipe (never sets trusted)
 chant verify <id> [--input k=v ...] [--run=false] [--json]         # run + verify; only a pass is "trusted"
 
@@ -309,7 +329,7 @@ chant invalidate <id> [--reason ...] [--json]   # mark a recipe stale
 
 # Repo
 chant init [--force] [--json]       # scaffold chant.yml, recipes/, skill, gitignore
-chant index [--json]                # rebuild .chant/index.json
+chant index [--no-registry] [--json]   # rebuild .chant/index.json (+ upsert into the per-machine registry)
 chant status [--json]               # rewrite .chant/STATUS.md
 chant doctor [--json]               # validate config + store
 chant bench [--suite=retrieval|e2e|all] [--json]   # run the validation suite
@@ -360,12 +380,45 @@ Each `Hit` in `hits[]`:
 | `confidence` | float | the retrieval score, rounded to 2 decimals. |
 | `status` | string | `active` or `stale`. |
 | `verifier_exists` | bool | the recipe has a verifier, so reuse *can* be trusted. |
-| `reasons` | `[]string` | why this recipe matched (lexical / file-signal / column-alias / staleness). |
-| `reuse_command` | string | the exact verifier-first command to reuse this recipe. |
+| `reasons` | `[]string` | why this recipe matched (lexical / file-signal / column-alias / staleness; or "foreign enchantment from registry" for a global hit). |
+| `reuse_command` | string | the exact verifier-first command to reuse this recipe — `chant verify <id>` for a local hit, `chant import <spell_hash>` for a foreign one. |
+| `global` | bool | only on `suggest --global`: `true` when the hit comes from the registry (a foreign enchantment born in another repo). |
+| `origin` | string | foreign hit only: the repo the enchantment was captured in. |
+| `scope` | string | foreign hit only: the enchantment's universality scope (`project` today). |
+| `spell_hash` | string | foreign hit only: the content-addressed identity to pass to `chant import`. |
 
 The recommended agent loop reads three fields and never parses prose:
 `match_found` → pick `hits[0]` → run its `reuse_command` → trust iff
-`trusted: true`.
+`trusted: true`. For a foreign hit (`global: true`) the `reuse_command` is an
+`import` — run it, then `chant verify` the imported recipe.
+
+A real `suggest --global --json` foreign hit (the registry holds a `greet`
+enchantment captured in another repo):
+
+```json
+{
+  "subcommand": "suggest",
+  "match_found": true,
+  "hits": [
+    {
+      "id": "greet",
+      "version": 1,
+      "description": "greet a name politely",
+      "confidence": 0.53,
+      "verifier_exists": true,
+      "reasons": ["foreign enchantment from registry — import then verify before trusting"],
+      "reuse_command": "chant import ff9a7d644ac15c3d   # copy locally, then `chant verify` before trusting",
+      "global": true,
+      "origin": "/abs/path/to/origin/repo",
+      "scope": "project",
+      "spell_hash": "ff9a7d644ac15c3d"
+    }
+  ],
+  "exit_code": 0,
+  "trusted": false,
+  "recommended_next_command": "chant import ff9a7d644ac15c3d   # copy locally, then `chant verify` before trusting"
+}
+```
 
 ### Error contract
 

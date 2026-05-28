@@ -12,20 +12,41 @@ rewrites `.chant/index.json` — a flattened, fast-to-read summary of every reci
 index is the data `chant list` prints and a convenient artifact for external
 tooling.
 
+It then **upserts the local library into the per-machine registry** — the shared
+index that powers cross-repo discovery (`chant suggest --global` and
+`chant import`). The registry lives at `$CHANT_REGISTRY`, defaulting to
+`~/.chant/registry/index.json`. Each enchantment is keyed by its `spell_hash`,
+so re-indexing updates the existing entry rather than duplicating it. Pass
+`--no-registry` to skip the upsert. The registry write degrades gracefully: if
+it isn't writable, indexing still succeeds and the failure is reported in
+`registry_warning` rather than erroring.
+
 Most commands that mutate the library (`capture`, `verify`, `invalidate`,
-`list`) refresh the index automatically; run `index` explicitly after editing
-`recipe.yaml` files by hand.
+`list`) refresh the local index automatically; run `index` explicitly after
+editing `recipe.yaml` files by hand, and to publish the library to the registry.
 
 ## Flags
 
 | Flag | Default | Meaning |
 |---|---|---|
-| `--json` | false | emit the index JSON to stdout. |
+| `--no-registry` | false | skip upserting the library into the per-machine registry. |
+| `--json` | false | emit the JSON outcome contract to stdout. |
 
 ## Example (human)
 
 ```bash
 chant index
+```
+
+```text
+indexed 1 recipe(s) → /path/to/repo/.chant/index.json
+upserted 1 enchantment(s) into the registry → /home/you/.chant/registry/index.json
+```
+
+With `--no-registry` the upsert line is omitted:
+
+```bash
+chant index --no-registry
 ```
 
 ```text
@@ -40,26 +61,35 @@ chant index --json
 
 ```json
 {
-  "generated_at": "2026-05-27T21:13:02Z",
+  "subcommand": "index",
   "count": 1,
-  "recipes": [
-    {
-      "id": "csv-revenue-by-channel",
-      "version": 1,
-      "description": "Compute ecommerce revenue by channel from CSV-like exports, robust to column-name drift across Shopify/Stripe/custom exports.",
-      "status": "active",
-      "tags": ["csv", "ecommerce", "revenue", "analytics"],
-      "runs": 1,
-      "failures": 0,
-      "success_rate": 1
-    }
-  ]
+  "index_path": "/path/to/repo/.chant/index.json",
+  "registry_upserted": 1,
+  "registry_warning": ""
+}
+```
+
+If the registry isn't writable, indexing still succeeds and the reason is
+surfaced (and `registry_upserted` stays `0`):
+
+```json
+{
+  "subcommand": "index",
+  "count": 1,
+  "index_path": "/path/to/repo/.chant/index.json",
+  "registry_upserted": 0,
+  "registry_warning": "mkdir /this: read-only file system"
 }
 ```
 
 ## JSON shape
 
-The index shape: `generated_at`, `count`, and `recipes[]` where each entry is an
-`IndexEntry` (`id`, `version`, `description`, `status`, `tags[]`, `runs`,
-`failures`, `success_rate`). This is the same shape `chant list --json` emits.
-The file is written to `.chant/index.json` (gitignored runtime state).
+`subcommand: "index"`, `count` (recipes indexed), `index_path` (the
+`.chant/index.json` written), `registry_upserted` (how many enchantments were
+written to the registry — `0` with `--no-registry` or on a registry error), and
+`registry_warning` (empty on success; the failure reason otherwise). See the
+[outcome contract](../README.md#json-outcome-contract).
+
+> The flattened recipe summary (`generated_at`, `count`, `recipes[]`) that this
+> command writes to `.chant/index.json` is emitted to stdout by
+> [`chant list --json`](list.md), not by `chant index --json`.
