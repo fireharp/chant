@@ -1,0 +1,35 @@
+# chant recipe card — a verified, reusable procedure.
+# Edit by hand or let `chant capture` regenerate it.
+id: count-rule-policy
+version: 1
+kind: executable_recipe
+description: Apply a today's-date-gated count-rule policy to a catalog query — read /docs/<bucket>/<today>.md, decide if the rule fires for (kind, city), and emit the exact-format `<COUNT:%d>` token or a bare integer. Distilled from BitGN's count-rule task family (t09-t12).
+when_to_use:
+    task_patterns:
+        - count products by kind
+        - how many <kind> in <city>
+        - apply count-rule policy
+    tags:
+        - policy
+        - ecommerce
+        - count
+        - date-gated
+what_to_do:
+    entrypoint: run.py
+    command: python3 run.py {{input}}
+    language: python
+verification:
+    command: python3 test_recipe.py
+    expected_artifacts:
+        - answer.json
+invalidation:
+    if_tests_fail: true
+dependencies:
+    runtime: 'python: >=3.8'
+examples:
+    - input: Cordless-Drill
+      output: answer.json
+metrics:
+    runs: 0
+    failures: 0
+status: active
