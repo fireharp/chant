@@ -79,9 +79,31 @@ type Outcome struct {
 	// invalidate / status
 	Stale bool `json:"stale,omitempty"`
 
+	// relations (read-only query). Outgoing lists edges THIS recipe declares
+	// (each one's target may resolve to a local recipe or dangle). Incoming
+	// lists edges OTHER local recipes declare AT this one (--inverse). Both
+	// are omitempty so unrelated subcommands serialize unchanged.
+	Outgoing []RelationEdge `json:"outgoing,omitempty"`
+	Incoming []RelationEdge `json:"incoming,omitempty"`
+
 	// shared
 	BlockingError          bool     `json:"blocking_error,omitempty"`
 	Message                string   `json:"message,omitempty"`
 	SuggestedCommands      []string `json:"suggested_commands,omitempty"`
 	RecommendedNextCommand string   `json:"recommended_next_command,omitempty"`
+}
+
+// RelationEdge is one typed lineage edge surfaced by `chant relations <id>`.
+// Kind is one of the six relation kinds (supersedes, mirrors, generalizes,
+// specializes, depends_on, implements). TargetID is the referenced recipe id
+// (or external resource ref for depends_on / implements). Resolved is true
+// when the TargetID points at a local recipe; false marks a dangling edge —
+// useful but not fatal (a relation may legitimately point at a cross-package
+// recipe not yet imported here). For --inverse queries, TargetID is the
+// SOURCE id of the incoming edge (the recipe that points AT us); Resolved
+// is always true there because we only scan local recipes.
+type RelationEdge struct {
+	Kind     string `json:"kind"`
+	TargetID string `json:"target_id"`
+	Resolved bool   `json:"resolved"`
 }

@@ -517,6 +517,191 @@ func TestCLI_ImportResetsMetrics(t *testing.T) {
 	}
 }
 
+// TestCLI_RelationsOutgoing covers the read-only outgoing-edge listing: a
+// captured recipe with --mirrors B,C reports both targets, with B resolved
+// (because B exists locally) and C dangling (because it doesn't).
+func TestCLI_RelationsOutgoing(t *testing.T) {
+	bin := buildBinary(t)
+	repo := newRepo(t)
+
+	// Capture B first so it exists locally; capture A second pointing at B
+	// (resolvable) and at a non-existent recipe-c (dangling).
+	if _, code := run(t, bin, repo,
+		"capture", "--id", "recipe-b", "--task", "b",
+		"--command", "echo b", "--verifier", "sh -c true", "--json"); code != 0 {
+		t.Fatal("capture B failed")
+	}
+	if _, code := run(t, bin, repo,
+		"capture", "--id", "recipe-a", "--task", "a",
+		"--command", "echo a", "--verifier", "sh -c true",
+		"--mirrors", "recipe-b,recipe-c", "--json"); code != 0 {
+		t.Fatal("capture A failed")
+	}
+
+	out, code := run(t, bin, repo, "relations", "recipe-a", "--json")
+	if code != 0 {
+		t.Fatalf("relations exit %d:\n%s", code, out)
+	}
+	var rl struct {
+		Subcommand string `json:"subcommand"`
+		RecipeID   string `json:"recipe_id"`
+		Outgoing   []struct {
+			Kind     string `json:"kind"`
+			TargetID string `json:"target_id"`
+			Resolved bool   `json:"resolved"`
+		} `json:"outgoing"`
+		Incoming []struct {
+			Kind     string `json:"kind"`
+			TargetID string `json:"target_id"`
+		} `json:"incoming"`
+	}
+	if err := json.Unmarshal([]byte(out), &rl); err != nil {
+		t.Fatalf("relations JSON parse: %v\n%s", err, out)
+	}
+	if rl.Subcommand != "relations" || rl.RecipeID != "recipe-a" {
+		t.Errorf("unexpected envelope: %+v", rl)
+	}
+	if len(rl.Outgoing) != 2 {
+		t.Fatalf("want 2 outgoing edges, got %d:\n%s", len(rl.Outgoing), out)
+	}
+	// Build a quick map: target → resolved.
+	got := make(map[string]bool)
+	for _, e := range rl.Outgoing {
+		if e.Kind != "mirrors" {
+			t.Errorf("edge kind = %q, want mirrors", e.Kind)
+		}
+		got[e.TargetID] = e.Resolved
+	}
+	if !got["recipe-b"] {
+		t.Errorf("recipe-b should be resolved (it exists locally): %+v", rl.Outgoing)
+	}
+	if got["recipe-c"] {
+		t.Errorf("recipe-c should be dangling (no such local recipe): %+v", rl.Outgoing)
+	}
+	// Incoming must be empty for the outgoing-mode query.
+	if len(rl.Incoming) != 0 {
+		t.Errorf("outgoing query unexpectedly included incoming edges: %+v", rl.Incoming)
+	}
+}
+
+// TestCLI_RelationsInverse: capture A.mirrors=[B], then `relations B
+// --inverse` must surface A as an incoming edge of kind mirrors.
+func TestCLI_RelationsInverse(t *testing.T) {
+	bin := buildBinary(t)
+	repo := newRepo(t)
+
+	if _, code := run(t, bin, repo,
+		"capture", "--id", "rel-b", "--task", "b",
+		"--command", "echo b", "--verifier", "sh -c true", "--json"); code != 0 {
+		t.Fatal("capture B failed")
+	}
+	if _, code := run(t, bin, repo,
+		"capture", "--id", "rel-a", "--task", "a",
+		"--command", "echo a", "--verifier", "sh -c true",
+		"--mirrors", "rel-b", "--json"); code != 0 {
+		t.Fatal("capture A failed")
+	}
+
+	out, code := run(t, bin, repo, "relations", "rel-b", "--inverse", "--json")
+	if code != 0 {
+		t.Fatalf("relations --inverse exit %d:\n%s", code, out)
+	}
+	var rl struct {
+		Subcommand string `json:"subcommand"`
+		RecipeID   string `json:"recipe_id"`
+		Outgoing   []struct {
+			Kind, TargetID string
+		} `json:"outgoing"`
+		Incoming []struct {
+			Kind     string `json:"kind"`
+			TargetID string `json:"target_id"`
+			Resolved bool   `json:"resolved"`
+		} `json:"incoming"`
+	}
+	if err := json.Unmarshal([]byte(out), &rl); err != nil {
+		t.Fatalf("relations --inverse JSON parse: %v\n%s", err, out)
+	}
+	if rl.RecipeID != "rel-b" {
+		t.Errorf("recipe_id = %q, want rel-b", rl.RecipeID)
+	}
+	if len(rl.Outgoing) != 0 {
+		t.Errorf("inverse query unexpectedly included outgoing: %+v", rl.Outgoing)
+	}
+	if len(rl.Incoming) != 1 {
+		t.Fatalf("want 1 incoming edge, got %d:\n%s", len(rl.Incoming), out)
+	}
+	e := rl.Incoming[0]
+	if e.Kind != "mirrors" || e.TargetID != "rel-a" || !e.Resolved {
+		t.Errorf("incoming edge = %+v, want kind=mirrors target_id=rel-a resolved=true", e)
+	}
+}
+
+// TestCLI_RelationsJSON exercises the JSON outcome envelope (subcommand,
+// recipe_id, version) plus a multi-kind outgoing listing — the wire-shape
+// agents will key on.
+func TestCLI_RelationsJSON(t *testing.T) {
+	bin := buildBinary(t)
+	repo := newRepo(t)
+
+	if _, code := run(t, bin, repo,
+		"capture", "--id", "core", "--task", "core",
+		"--command", "echo c", "--verifier", "sh -c true", "--json"); code != 0 {
+		t.Fatal("capture core failed")
+	}
+	if _, code := run(t, bin, repo,
+		"capture", "--id", "wide", "--task", "wide",
+		"--command", "echo w", "--verifier", "sh -c true",
+		"--supersedes", "core",
+		"--depends-on", "data:orders-schema",
+		"--implements", "US-014", "--json"); code != 0 {
+		t.Fatal("capture wide failed")
+	}
+
+	out, code := run(t, bin, repo, "relations", "wide", "--json")
+	if code != 0 {
+		t.Fatalf("relations exit %d:\n%s", code, out)
+	}
+	var rl struct {
+		Subcommand string `json:"subcommand"`
+		RecipeID   string `json:"recipe_id"`
+		Version    int    `json:"version"`
+		Outgoing   []struct {
+			Kind     string `json:"kind"`
+			TargetID string `json:"target_id"`
+			Resolved bool   `json:"resolved"`
+		} `json:"outgoing"`
+	}
+	if err := json.Unmarshal([]byte(out), &rl); err != nil {
+		t.Fatalf("relations JSON parse: %v\n%s", err, out)
+	}
+	if rl.Subcommand != "relations" || rl.RecipeID != "wide" || rl.Version != 1 {
+		t.Errorf("envelope = %+v, want subcommand=relations recipe_id=wide version=1", rl)
+	}
+	if len(rl.Outgoing) != 3 {
+		t.Fatalf("want 3 outgoing edges (supersedes/depends_on/implements), got %d:\n%s", len(rl.Outgoing), out)
+	}
+	// supersedes→core resolves locally; depends_on/implements are non-recipe
+	// references and must report resolved=false (dangling).
+	for _, e := range rl.Outgoing {
+		switch e.Kind {
+		case "supersedes":
+			if e.TargetID != "core" || !e.Resolved {
+				t.Errorf("supersedes edge = %+v, want target=core resolved=true", e)
+			}
+		case "depends_on":
+			if e.TargetID != "data:orders-schema" || e.Resolved {
+				t.Errorf("depends_on edge = %+v, want target=data:orders-schema resolved=false", e)
+			}
+		case "implements":
+			if e.TargetID != "US-014" || e.Resolved {
+				t.Errorf("implements edge = %+v, want target=US-014 resolved=false", e)
+			}
+		default:
+			t.Errorf("unexpected edge kind %q", e.Kind)
+		}
+	}
+}
+
 // TestCLI_IndexNoRegistryOmitsWarning locks the NEW-2 fix: --no-registry
 // --json must not emit a stray `registry_warning: ""` field.
 func TestCLI_IndexNoRegistryOmitsWarning(t *testing.T) {

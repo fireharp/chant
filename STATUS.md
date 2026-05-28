@@ -52,10 +52,10 @@ docs/ evidence/       command reference + specs + user stories · iteration ledg
 | JSON outcome contract | ✅ incl. blocking_error on error paths; always-present match_found |
 | Cross-package registry | ✅ `index` upserts to a per-machine registry; `suggest --global` surfaces foreign enchantments by `spell_hash`; `import` copies one locally (verifier-first — import ≠ trust) |
 | Scope promotion (project→domain→universal) | ✅ `chant verify` auto-records the current context into `verified_in` and promotes scope from earned evidence (spec §5); `chant promote` recomputes from current evidence without re-running the verifier |
+| Typed relations | ✅ `chant capture` sets `--supersedes`/`--mirrors`/`--generalizes`/`--specializes`/`--depends-on`/`--implements`; `chant relations <id> [--inverse]` queries the lineage edges (resolved vs dangling); `chant doctor` warns on dangling targets |
 
 ## In progress / roadmap
 
-- **Typed relations** surfaced/queried (supersedes/mirrors/depends_on/implements).
 - **Optional semantic retrieval** pass (gated like coherence's LLM pass).
 - **BitGN integration**: capture the refund/count-rule/catalog solvers as
   reusable enchantments (see `.agents/tasks/research/bitgn-findings.md`).

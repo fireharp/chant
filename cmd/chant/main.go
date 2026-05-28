@@ -48,6 +48,8 @@ func main() {
 		err = cmdInvalidate(args)
 	case "promote":
 		err = cmdPromote(args)
+	case "relations":
+		err = cmdRelations(args)
 	case "index":
 		err = cmdIndex(args)
 	case "import":
@@ -111,6 +113,7 @@ Library:
   explain   <id>             print a recipe card
   invalidate <id>            mark a recipe stale
   promote   <id>             recompute scope (project→domain→universal) from verified_in evidence
+  relations <id> [--inverse] [--json]     list typed lineage edges (outgoing or incoming)
   import    <id|spell_hash> [--as <id>]   copy a foreign enchantment locally (then chant verify)
 
 Repo:

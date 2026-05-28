@@ -35,6 +35,7 @@ verifier and record the first trust event.
 | `--verifier` | empty | verification command (exit 0 == verified). |
 | `--expect-artifacts` | empty | comma-separated expected output artifacts. |
 | `--columns` | empty | comma-separated logical columns the inputs must satisfy; populates `portability.input_contract.required_columns_any`. |
+| `--supersedes`, `--mirrors`, `--generalizes`, `--specializes`, `--depends-on`, `--implements` | empty | comma-separated target ids/refs for each typed [relations](relations.md) kind (spec §3 + §7). |
 | `--author` | `agent:capture` | provenance author written to `provenance.author`. |
 | `--tags` | empty | comma-separated tags. |
 | `--patterns` | empty | comma-separated extra task patterns. |
@@ -142,10 +143,32 @@ portability:
 
 `--author` sets `provenance.author`; `--columns a,b` populates
 `portability.input_contract.required_columns_any`; `--language` populates
-`portability.requires.runtime`. The registry, scope promotion, and typed
-relations described in
+`portability.requires.runtime`.
+
+### Typed relations (since v0.3)
+
+Six additional flags populate `relations.*` on the captured card and let
+[`chant relations`](relations.md) query the resulting lineage edges:
+
+| Flag             | Populates                       | Use for                                          |
+| ---------------- | ------------------------------- | ------------------------------------------------ |
+| `--supersedes`   | `relations.supersedes`           | this enchantment replaces those (version lineage).|
+| `--mirrors`      | `relations.mirrors`              | same procedure, another language/package.         |
+| `--generalizes`  | `relations.generalizes`          | this is a broader form of those.                  |
+| `--specializes`  | `relations.specializes`          | this is a narrower form of those.                 |
+| `--depends-on`   | `relations.depends_on`           | data/config the procedure requires.               |
+| `--implements`   | `relations.implements`           | user-story / policy ids this fulfils.             |
+
+Each accepts a comma-separated list. Targets do not need to exist in the
+local library (cross-package + forward references are fine — `chant doctor`
+surfaces them as warnings).
+
+`scope` and `verified_in` populate at first capture as `project` with no
+contexts; both grow as `chant verify` passes in new repos. The cross-package
+registry, scope promotion, and typed relations described in
 [`docs/specs/enchantment-metadata.md`](../specs/enchantment-metadata.md) are
-still planned.
+**shipped** (see [registry](../README.md#cross-package-reuse-the-registry),
+[`promote`](promote.md), [`relations`](relations.md)).
 
 ## JSON shape
 

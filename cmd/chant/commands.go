@@ -228,7 +228,13 @@ func cmdCapture(args []string) error {
 	patterns := fs.String("patterns", "", "comma-separated extra task patterns")
 	fileSignals := fs.String("file-signals", "", "comma-separated input file globs")
 	columns := fs.String("columns", "", "comma-separated required column aliases (one alias group)")
+	dependsOn := fs.String("depends-on", "", "comma-separated relations.depends_on targets (data/config refs)")
 	domains := fs.String("domains", "", "comma-separated domain labels (drive scope promotion; see spec §5)")
+	generalizes := fs.String("generalizes", "", "comma-separated relations.generalizes targets (narrower recipes this broadens)")
+	implements := fs.String("implements", "", "comma-separated relations.implements targets (story/policy ids)")
+	mirrors := fs.String("mirrors", "", "comma-separated relations.mirrors targets (same procedure in another language/package)")
+	specializes := fs.String("specializes", "", "comma-separated relations.specializes targets (broader recipes this narrows)")
+	supersedes := fs.String("supersedes", "", "comma-separated relations.supersedes targets (versions this replaces)")
 	author := fs.String("author", "", "provenance author (defaults to agent:capture)")
 	force := fs.Bool("force", false, "overwrite an existing recipe")
 	asJSON := fs.Bool("json", false, "emit JSON outcome contract")
@@ -354,6 +360,17 @@ func cmdCapture(args []string) error {
 	if len(columnsAny) > 0 {
 		r.Portability.InputContract.RequiredColumnsAny = columnsAny
 	}
+
+	// Typed relations (spec §3, §7): each flag is a comma-separated list of
+	// target ids/refs that populates the corresponding edge kind. All are
+	// optional and yaml-omitempty so a capture with none of these flags
+	// produces a card byte-identical to before.
+	r.Relations.Supersedes = splitCSV(*supersedes)
+	r.Relations.Mirrors = splitCSV(*mirrors)
+	r.Relations.Generalizes = splitCSV(*generalizes)
+	r.Relations.Specializes = splitCSV(*specializes)
+	r.Relations.DependsOn = splitCSV(*dependsOn)
+	r.Relations.Implements = splitCSV(*implements)
 
 	if err := r.Save(); err != nil {
 		return err
@@ -1098,6 +1115,30 @@ func cmdDoctor(args []string) error {
 		} else {
 			add("verifiers", "ok", fmt.Sprintf("all %d recipe(s) have a verifier", len(recs)))
 		}
+		// Typed-relations dangling-target check (spec §3, §7). A dangling
+		// edge is informational — a relation target may legitimately live in
+		// another package that hasn't been imported here yet — so this is a
+		// `warn`, not a `fail`. We list up to three example edges so the
+		// user can act without dumping the full graph at them.
+		if dangs := scanDanglingRelations(recs); len(dangs) > 0 {
+			n := len(dangs)
+			limit := 3
+			if n < limit {
+				limit = n
+			}
+			samples := make([]string, 0, limit)
+			for _, d := range dangs[:limit] {
+				samples = append(samples, fmt.Sprintf("%s %s→ %s", d.Source, d.Kind, d.Target))
+			}
+			more := ""
+			if n > limit {
+				more = fmt.Sprintf(" (+%d more)", n-limit)
+			}
+			add("relations", "warn", fmt.Sprintf("%d dangling relation target(s): %s%s",
+				n, strings.Join(samples, "; "), more))
+		} else if len(recs) > 0 {
+			add("relations", "ok", "all relation targets resolve to local recipes")
+		}
 	}
 	// gitignore
 	if b, err := os.ReadFile(filepath.Join(s.Root, ".gitignore")); err == nil && strings.Contains(string(b), store.StateDir) {
@@ -1287,6 +1328,179 @@ func cmdPromote(args []string) error {
 			r.ID, newScope, len(contexts))
 	}
 	return nil
+}
+
+// ---- relations ----
+
+// relationKinds is the canonical, alphabetized list of the six edge kinds. The
+// order here drives the listing order in both human and JSON output so the
+// rendering is stable across runs.
+var relationKinds = []string{
+	"depends_on", "generalizes", "implements", "mirrors", "specializes", "supersedes",
+}
+
+// relationTargets returns the targets declared on r for one kind. Kept as a
+// small helper so both the outgoing walk and the inverse scan use the exact
+// same field-to-kind mapping.
+func relationTargets(r *recipe.Recipe, kind string) []string {
+	switch kind {
+	case "supersedes":
+		return r.Relations.Supersedes
+	case "mirrors":
+		return r.Relations.Mirrors
+	case "generalizes":
+		return r.Relations.Generalizes
+	case "specializes":
+		return r.Relations.Specializes
+	case "depends_on":
+		return r.Relations.DependsOn
+	case "implements":
+		return r.Relations.Implements
+	}
+	return nil
+}
+
+// cmdRelations is the read-only typed-relations query (spec §3, §7). Without
+// --inverse: list the recipe's outgoing edges, marking each target resolved
+// when a local recipe of that id exists else dangling. With --inverse: scan
+// every other local recipe and list edges that POINT AT this recipe id.
+//
+// It is purely read-only: exit 0 always (an unknown id is the only error
+// path, handled via the standard blocking_error JSON contract → exit 1).
+func cmdRelations(args []string) error {
+	fs := flag.NewFlagSet("relations", flag.ContinueOnError)
+	inverse := fs.Bool("inverse", false, "list edges from OTHER local recipes that point AT <id>")
+	asJSON := fs.Bool("json", false, "emit JSON outcome contract")
+	positionals, err := parseFlags(fs, args)
+	if err != nil {
+		return err
+	}
+	if len(positionals) == 0 {
+		return fmt.Errorf("relations requires a recipe id")
+	}
+	id := positionals[0]
+	s, err := openStore()
+	if err != nil {
+		return err
+	}
+	// Surface the standard "not found" blocking error if id is unknown. We
+	// hit this BEFORE the library walk so the JSON error path is consistent
+	// with other commands (verify/explain/promote all error here).
+	target, err := s.Get(id)
+	if err != nil {
+		return err
+	}
+	recs, err := s.LoadAll()
+	if err != nil {
+		return err
+	}
+	// Build a presence set once for O(1) resolution checks.
+	present := make(map[string]struct{}, len(recs))
+	for _, r := range recs {
+		present[r.ID] = struct{}{}
+	}
+
+	out := outcome.Outcome{
+		Subcommand: "relations",
+		RecipeID:   target.ID,
+		Version:    target.Version,
+	}
+
+	if *inverse {
+		// Inverse: collect edges from OTHER recipes pointing at id. The
+		// TargetID field carries the SOURCE recipe id (the one that declares
+		// the edge); Resolved is always true because we only scanned local
+		// recipes. We omit self-references for clarity.
+		for _, r := range recs {
+			if r.ID == target.ID {
+				continue
+			}
+			for _, kind := range relationKinds {
+				for _, t := range relationTargets(r, kind) {
+					if t == target.ID {
+						out.Incoming = append(out.Incoming, outcome.RelationEdge{
+							Kind:     kind,
+							TargetID: r.ID,
+							Resolved: true,
+						})
+					}
+				}
+			}
+		}
+	} else {
+		// Outgoing: list each declared edge; resolved iff the target id is
+		// a known local recipe id. depends_on/implements may legitimately
+		// reference non-recipe resources (e.g. "data:orders-schema") — they
+		// will simply report resolved=false, which the human output marks
+		// as "dangling". A dangling edge is informational, not an error.
+		for _, kind := range relationKinds {
+			for _, t := range relationTargets(target, kind) {
+				_, ok := present[t]
+				out.Outgoing = append(out.Outgoing, outcome.RelationEdge{
+					Kind:     kind,
+					TargetID: t,
+					Resolved: ok,
+				})
+			}
+		}
+	}
+
+	if *asJSON {
+		return emitJSON(out)
+	}
+
+	if *inverse {
+		if len(out.Incoming) == 0 {
+			fmt.Printf("no local recipes relate to %s\n", target.ID)
+			return nil
+		}
+		fmt.Printf("%d incoming relation(s) to %s:\n", len(out.Incoming), target.ID)
+		for _, e := range out.Incoming {
+			fmt.Printf("  %-12s ← %s\n", e.Kind, e.TargetID)
+		}
+		return nil
+	}
+	if len(out.Outgoing) == 0 {
+		fmt.Printf("%s declares no relations\n", target.ID)
+		return nil
+	}
+	fmt.Printf("%d outgoing relation(s) from %s:\n", len(out.Outgoing), target.ID)
+	for _, e := range out.Outgoing {
+		marker := ""
+		if !e.Resolved {
+			marker = "  (dangling)"
+		}
+		fmt.Printf("  %-12s → %s%s\n", e.Kind, e.TargetID, marker)
+	}
+	return nil
+}
+
+// danglingEdge is a doctor-check helper struct: one dangling outgoing edge
+// from a local recipe (used to surface up to a few examples in the report).
+type danglingEdge struct {
+	Source, Kind, Target string
+}
+
+// scanDanglingRelations walks every local recipe and returns the outgoing
+// edges whose target id is NOT a known local recipe id. Used by `chant
+// doctor` to warn about cross-package references that haven't been imported
+// yet (a dangling edge is informational — explicitly NOT a failure).
+func scanDanglingRelations(recs []*recipe.Recipe) []danglingEdge {
+	present := make(map[string]struct{}, len(recs))
+	for _, r := range recs {
+		present[r.ID] = struct{}{}
+	}
+	var out []danglingEdge
+	for _, r := range recs {
+		for _, kind := range relationKinds {
+			for _, t := range relationTargets(r, kind) {
+				if _, ok := present[t]; !ok {
+					out = append(out, danglingEdge{Source: r.ID, Kind: kind, Target: t})
+				}
+			}
+		}
+	}
+	return out
 }
 
 // logRun persists a run record under .chant/runs/.
