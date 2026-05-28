@@ -353,7 +353,7 @@ fields are omitted, so each subcommand's payload stays focused.
 | Field | Type | Emitted by | Meaning |
 | --- | --- | --- | --- |
 | `subcommand` | string | all | which command produced this payload (`suggest`, `capture`, `run`, `verify`, `invalidate`, `search`). |
-| `match_found` | bool | all | a candidate above the retrieval threshold exists. Always present (`false` too) so a consumer never has to distinguish "no match" from "field absent". |
+| `match_found` | bool | all | a candidate above the retrieval threshold exists. Always present (`false` too) so a consumer never has to distinguish "no match" from "field absent". **Note for `search`:** `search` ranks every recipe regardless of threshold, so its `match_found` is always `false`; an agent using `search` should consult `hits[]` directly (the agent-loop pattern that keys on `match_found` is for `suggest`, not `search`). |
 | `hits` | `[]Hit` | `suggest`, `search` | ranked recipe candidates (see below). |
 | `recipe_id` | string | `run`, `verify`, `capture`, `invalidate` | the recipe acted on. |
 | `version` | int | `run`, `verify`, `capture` | the recipe version. |

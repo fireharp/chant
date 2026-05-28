@@ -819,13 +819,18 @@ func cmdIndex(args []string) error {
 	}
 
 	if *asJSON {
-		return emitJSON(map[string]any{
+		// registry_warning is omitted when empty: the rest of the outcome
+		// contract uses omitempty, and a stray "" field misleads consumers.
+		payload := map[string]any{
 			"subcommand":        "index",
 			"count":             idx.Count,
 			"registry_upserted": upserted,
-			"registry_warning":  registryWarn,
 			"index_path":        s.StatePath("index.json"),
-		})
+		}
+		if registryWarn != "" {
+			payload["registry_warning"] = registryWarn
+		}
+		return emitJSON(payload)
 	}
 	fmt.Printf("indexed %d recipe(s) → %s\n", idx.Count, s.StatePath("index.json"))
 	if !*noRegistry {
@@ -924,12 +929,24 @@ func cmdImport(args []string) error {
 		return fmt.Errorf("copy recipe: %w", err)
 	}
 
-	// If we imported under a new id, rewrite the card's id so it loads cleanly.
-	if newID != entry.ID {
-		if r, lerr := recipe.Load(dst); lerr == nil {
+	// Reset the imported card's local-evidence fields so verifier-first still
+	// reads correctly in this repo (NEW-1 from naive-user v0.2):
+	//   - origin's metrics.runs/last_success_at belong to the origin's
+	//     verifications, not ours; without a reset `chant list` would show
+	//     "N run(s) 100% ok" right after import, contradicting the
+	//     "NOT trusted yet" warning the import command itself prints.
+	//   - verified_in is the per-context evidence that drives scope promotion;
+	//     it must accumulate from THIS repo's verifies, not inherit the origin's.
+	// Also rewrite the id when --as was used so the card loads cleanly.
+	if r, lerr := recipe.Load(dst); lerr == nil {
+		if newID != entry.ID {
 			r.ID = newID
-			_ = r.Save()
 		}
+		r.Metrics = recipe.Metrics{}
+		r.VerifiedIn = nil
+		// Scope stays as captured ("project" by default); it will earn
+		// promotion locally once verifiers pass in this repo's contexts.
+		_ = r.Save()
 	}
 	_, _ = s.WriteIndex()
 

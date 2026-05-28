@@ -444,3 +444,94 @@ func TestCLI_UnknownCommandExit2(t *testing.T) {
 		t.Errorf("unknown command exit = %d, want 2\n%s", code, out)
 	}
 }
+
+// TestCLI_ImportResetsMetrics locks in the NEW-1 fix from the naive-user v0.2
+// pass: an imported recipe must NOT inherit the origin's metrics.runs /
+// last_success_at. Without the reset, `chant list` shows "N run(s) 100% ok"
+// right after `chant import`, directly contradicting the import command's own
+// "NOT trusted yet" message and breaking the verifier-first invariant
+// visually.
+func TestCLI_ImportResetsMetrics(t *testing.T) {
+	bin := buildBinary(t)
+	regPath := filepath.Join(t.TempDir(), "reg.json")
+	extraEnv := []string{"CHANT_REGISTRY=" + regPath}
+
+	// Repo A: capture, verify (bumps metrics), index → push into the registry.
+	repoA := newRepo(t)
+	if _, code := runEnv(t, bin, repoA, extraEnv,
+		"capture", "--id", "n1-greet", "--task", "greet someone",
+		"--command", "echo hi", "--verifier", "sh -c true", "--json"); code != 0 {
+		t.Fatal("capture in A failed")
+	}
+	if _, code := runEnv(t, bin, repoA, extraEnv, "verify", "n1-greet"); code != 0 {
+		t.Fatal("verify in A failed")
+	}
+	if _, code := runEnv(t, bin, repoA, extraEnv, "index"); code != 0 {
+		t.Fatal("index in A failed")
+	}
+
+	// Repo B: empty. Import by id.
+	repoB := newRepo(t)
+	if out, code := runEnv(t, bin, repoB, extraEnv, "import", "n1-greet"); code != 0 {
+		t.Fatalf("import into B failed: %d\n%s", code, out)
+	}
+
+	// Read the imported card directly — metrics + verified_in must be empty.
+	b, err := os.ReadFile(filepath.Join(repoB, "recipes", "n1-greet", "recipe.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	card := string(b)
+	if strings.Contains(card, "last_success_at") {
+		t.Errorf("imported card carries origin last_success_at — verifier-first leak:\n%s", card)
+	}
+	// runs: 0 / failures: 0 / no inherited verified_in are the local-evidence
+	// invariants. We tolerate the field being absent (omitempty) or zero.
+	if strings.Contains(card, "runs: 1") || strings.Contains(card, "runs: 2") {
+		t.Errorf("imported card inherits non-zero runs:\n%s", card)
+	}
+	if strings.Contains(card, "verified_in:") {
+		t.Errorf("imported card carries origin verified_in — should accumulate locally:\n%s", card)
+	}
+
+	// `chant list --json` in B must NOT report success_rate from origin
+	// before any local verify.
+	out, code := runEnv(t, bin, repoB, extraEnv, "list", "--json")
+	if code != 0 {
+		t.Fatalf("list exit %d:\n%s", code, out)
+	}
+	var idx struct {
+		Recipes []struct {
+			ID   string `json:"id"`
+			Runs int    `json:"runs"`
+		} `json:"recipes"`
+	}
+	if err := json.Unmarshal([]byte(out), &idx); err != nil {
+		t.Fatalf("list JSON parse: %v\n%s", err, out)
+	}
+	if len(idx.Recipes) != 1 || idx.Recipes[0].ID != "n1-greet" {
+		t.Fatalf("expected one recipe n1-greet in B, got: %+v", idx)
+	}
+	if idx.Recipes[0].Runs != 0 {
+		t.Errorf("imported recipe shows runs=%d in `list --json` before any local verify (want 0)", idx.Recipes[0].Runs)
+	}
+}
+
+// TestCLI_IndexNoRegistryOmitsWarning locks the NEW-2 fix: --no-registry
+// --json must not emit a stray `registry_warning: ""` field.
+func TestCLI_IndexNoRegistryOmitsWarning(t *testing.T) {
+	bin := buildBinary(t)
+	repo := newRepo(t)
+	out, code := runEnv(t, bin, repo, nil,
+		"capture", "--id", "x", "--task", "x", "--command", "echo x", "--verifier", "sh -c true", "--json")
+	if code != 0 {
+		t.Fatalf("capture exit %d:\n%s", code, out)
+	}
+	out, code = runEnv(t, bin, repo, nil, "index", "--no-registry", "--json")
+	if code != 0 {
+		t.Fatalf("index exit %d:\n%s", code, out)
+	}
+	if strings.Contains(out, `"registry_warning"`) {
+		t.Errorf("--no-registry --json should omit registry_warning when empty, got:\n%s", out)
+	}
+}
