@@ -1,6 +1,7 @@
 LOCAL.md
 .env
 .coherence/
+.hegel/
 .claude/ralph-loop.local.md
 bin/
 .chant/

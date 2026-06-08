@@ -332,7 +332,7 @@ chant init [--force] [--json]       # scaffold chant.yml, recipes/, skill, gitig
 chant index [--no-registry] [--json]   # rebuild .chant/index.json (+ upsert into the per-machine registry)
 chant status [--json]               # rewrite .chant/STATUS.md
 chant doctor [--json]               # validate config + store
-chant bench [--suite=retrieval|e2e|all] [--json]   # run the validation suite
+chant bench [--suite=retrieval|e2e|properties|all] [--json]   # run the validation suite
 chant version
 chant help
 ```
@@ -532,17 +532,24 @@ go test ./...
 ## Bench
 
 `chant bench` runs the shipped validation suites and exits 1 on any failure —
-same CI muscle memory as `coherence bench`:
+same CI muscle memory as `coherence bench`. The default `all` suite is the
+fast gate (`retrieval` + `e2e`); Hegel properties are opt-in:
 
 ```bash
 chant bench                      # default: all suites
 chant bench --suite=retrieval    # retrieval ranking scenarios (incl. true negatives)
 chant bench --suite=e2e          # run + verify every recipe with an example, asserting the trust gate
+chant bench --suite=properties   # Hegel property tests; starts hegel-core
 chant bench --json               # machine-readable
 ```
 
 The retrieval suite asserts which recipe ranks first for a query (and that an
 unrelated query yields **no** match). The e2e suite proves the verifier-first
 gate end to end: each recipe with a verifier and an example is run and verified,
-and is only counted as a pass when the verifier establishes trust. See
+and is only counted as a pass when the verifier establishes trust. The
+properties suite uses Hegel under the `hegel` build tag to generate cases for
+retrieval, runner, spell-hash, and CSV recipe invariants; Hegel state is kept
+under `.chant/hegel/`, with the latest report at
+`.chant/hegel/properties-report.json` and failure payloads under
+`.chant/hegel/failures/`. See
 [`internal/bench/bench.go`](internal/bench/bench.go).

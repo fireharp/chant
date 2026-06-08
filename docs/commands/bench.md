@@ -7,8 +7,9 @@
 ## What it does
 
 Runs chant's shipped validation suites and exits `1` on any scenario failure —
-the same CI muscle memory as `coherence bench`. Two suites prove the core
-thesis:
+the same CI muscle memory as `coherence bench`. The default `all` suite is the
+fast compatibility gate: `retrieval` + `e2e`. The Hegel-backed `properties`
+suite is opt-in because it starts the Hegel runtime.
 
 - **`retrieval`** — a synthetic recipe set + queries, asserting which recipe
   ranks first and whether it clears the match threshold. Includes a **true
@@ -18,12 +19,18 @@ thesis:
   verifier establishes trust). Recipes without a verifier or without an example
   are skipped (reported as a pass with a skip note) so the suite stays green on
   a fresh library.
+- **`properties`** — runs build-tagged Hegel property tests for retrieval,
+  runner trust, spell hashes, and the CSV recipe oracle. Results are reported
+  per property with a `cases` count, and `.chant/hegel/properties-report.json`
+  preserves the latest report. On failure, generated-case evidence is written
+  under `.chant/hegel/failures/`. The suite may use Python/`uv` to start
+  `hegel-core` unless `HEGEL_SERVER_COMMAND` is set.
 
 ## Flags
 
 | Flag | Default | Meaning |
 |---|---|---|
-| `--suite` | `all` | `retrieval`, `e2e`, or `all`. |
+| `--suite` | `all` | `retrieval`, `e2e`, `properties`, or `all`. `all` intentionally excludes `properties`. |
 | `--json` | false | emit the suite summaries as JSON. |
 
 ## Example (human)
@@ -89,8 +96,36 @@ chant bench --json
 
 A top-level `{summaries[], failed}`. Each `Summary` carries `suite`, `total`,
 `passed`, `failed`, and `results[]`; each `Result` carries `id`, `name`,
-`suite`, `pass`, and a `detail` string. `failed` is the total failed across all
-suites; a non-zero value makes `chant bench` exit `1`.
+`suite`, `pass`, and a `detail` string. Property results may also carry
+`cases` and `failure_artifact`. `failed` is the total failed across all suites;
+a non-zero value makes `chant bench` exit `1`.
+
+The opt-in property suite has the same top-level JSON shape:
+
+```bash
+chant bench --suite=properties --json
+```
+
+```json
+{
+  "failed": 0,
+  "summaries": [
+    {
+      "suite": "properties",
+      "total": 5,
+      "passed": 5,
+      "failed": 0,
+      "results": [
+        {"id": "PROP-retrieval-stale-penalty", "name": "retrieval stale penalty", "suite": "properties", "pass": true, "detail": "Hegel property passed", "cases": 50},
+        {"id": "PROP-retrieval-signal-monotonicity", "name": "retrieval signal monotonicity", "suite": "properties", "pass": true, "detail": "Hegel property passed", "cases": 50},
+        {"id": "PROP-runner-trust-gate", "name": "runner trust gate", "suite": "properties", "pass": true, "detail": "Hegel property passed", "cases": 50},
+        {"id": "PROP-spell-hash-stability", "name": "spell hash stability", "suite": "properties", "pass": true, "detail": "Hegel property passed", "cases": 50},
+        {"id": "PROP-csv-recipe-oracle", "name": "CSV recipe oracle", "suite": "properties", "pass": true, "detail": "Hegel property passed", "cases": 25}
+      ]
+    }
+  ]
+}
+```
 
 ## What the scenarios assert
 
@@ -101,3 +136,8 @@ suites; a non-zero value makes `chant bench` exit `1`.
 | `RET-003` | a chargeback/refund task routes to `refund-chargeback-threat`. |
 | `RET-004` | column signals disambiguate revenue from a normalize recipe. |
 | `E2E-<id>` | each recipe with a verifier + example runs and verifies, and is trusted only on a passing verifier. |
+| `PROP-retrieval-stale-penalty` | Hegel generates cases proving stale recipes score exactly half and carry a stale warning. |
+| `PROP-retrieval-signal-monotonicity` | Hegel generates matching and unsatisfied structural signals and checks score behavior. |
+| `PROP-runner-trust-gate` | Hegel generates verifier/artifact combinations and checks trust is granted only through the gate. |
+| `PROP-spell-hash-stability` | Hegel generates equivalent commands and column orderings and checks `spell_hash` stability. |
+| `PROP-csv-recipe-oracle` | Hegel generates CSV rows/aliases and compares the recipe output to an independent oracle. |

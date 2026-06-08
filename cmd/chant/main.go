@@ -121,7 +121,7 @@ Repo:
   index    [--no-registry]   rebuild .chant/index.json (and upsert into the per-machine registry)
   status                     rewrite .chant/STATUS.md
   doctor                     validate config + store
-  bench [--suite=retrieval|e2e|all]   run the validation suite
+  bench [--suite=retrieval|e2e|properties|all]   run the validation suite
   version
 
 Most commands accept --json for a stable machine-readable outcome contract.

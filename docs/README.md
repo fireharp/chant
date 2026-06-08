@@ -23,6 +23,7 @@ A chant recipe is also called an **enchantment** (synonym; the on-disk form is
 docs/
 ├── README.md            ← you are here
 ├── commands/            ← one page per CLI command
+├── integration/         ← integration notes such as Hegel
 └── specs/               ← design specs (owned by the lead; see enchantment-metadata.md)
 ```
 
@@ -129,16 +130,22 @@ graph edges. The canonical design is
 
 ## Bench
 
-Every page's behavior is exercised by `chant bench`, which ships two suites:
+Every page's behavior is exercised by `chant bench`. The default `all` suite
+runs the two fast compatibility suites:
 
 - **retrieval** — synthetic recipe set + queries asserting which recipe ranks
   first (including true negatives: an unrelated query must NOT match).
 - **e2e** — runs each recipe's procedure + verifier and asserts the
   verifier-first gate (trusted only after the verifier passes).
+- **properties** — opt-in Hegel property tests for retrieval, runner,
+  spell-hash, and CSV recipe invariants, with per-property case counts and
+  `.chant/hegel/` evidence files.
 
 ```bash
 chant bench --suite=all
+chant bench --suite=properties
 ```
 
 Exit code is `1` when any scenario fails — same CI muscle memory as
-`coherence bench`. See [`commands/bench.md`](commands/bench.md).
+`coherence bench`. See [`commands/bench.md`](commands/bench.md) and
+[`integration/hegel.md`](integration/hegel.md).

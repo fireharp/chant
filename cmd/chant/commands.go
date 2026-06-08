@@ -1177,7 +1177,7 @@ func cmdDoctor(args []string) error {
 
 func cmdBench(args []string) error {
 	fs := flag.NewFlagSet("bench", flag.ContinueOnError)
-	suite := fs.String("suite", "all", "retrieval | e2e | all")
+	suite := fs.String("suite", "all", "retrieval | e2e | properties | all")
 	asJSON := fs.Bool("json", false, "emit JSON")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -1187,15 +1187,27 @@ func cmdBench(args []string) error {
 		return err
 	}
 	var summaries []bench.Summary
-	if *suite == "retrieval" || *suite == "all" {
+	switch *suite {
+	case "retrieval":
 		summaries = append(summaries, bench.RunRetrieval(s.Config.Retrieval))
-	}
-	if *suite == "e2e" || *suite == "all" {
+	case "e2e":
 		e2e, err := bench.RunE2E(s)
 		if err != nil {
 			return err
 		}
 		summaries = append(summaries, e2e)
+	case "properties":
+		summaries = append(summaries, bench.RunProperties(s.Root))
+	case "all":
+		// Keep all as the fast, backward-compatible gate: retrieval + e2e.
+		summaries = append(summaries, bench.RunRetrieval(s.Config.Retrieval))
+		e2e, err := bench.RunE2E(s)
+		if err != nil {
+			return err
+		}
+		summaries = append(summaries, e2e)
+	default:
+		return fmt.Errorf("unknown bench suite %q (want retrieval, e2e, properties, or all)", *suite)
 	}
 	failed := 0
 	for _, sum := range summaries {
