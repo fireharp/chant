@@ -304,6 +304,26 @@ func TestCLI_JSONErrorEmitsBlockingError(t *testing.T) {
 	}
 }
 
+func TestCLI_BenchUnknownSuiteJSONError(t *testing.T) {
+	bin := buildBinary(t)
+	repo := newRepo(t)
+	out, code := run(t, bin, repo, "bench", "--suite=bogus", "--json")
+	if code != 1 {
+		t.Errorf("expected exit 1 for unknown bench suite, got %d\n%s", code, out)
+	}
+	var e struct {
+		BlockingError bool   `json:"blocking_error"`
+		Message       string `json:"message"`
+		Subcommand    string `json:"subcommand"`
+	}
+	if err := json.Unmarshal([]byte(out), &e); err != nil {
+		t.Fatalf("bench error path did not emit JSON under --json: %v\n%s", err, out)
+	}
+	if !e.BlockingError || e.Subcommand != "bench" || !strings.Contains(e.Message, "unknown bench suite") {
+		t.Errorf("unexpected bench error JSON: %+v\n%s", e, out)
+	}
+}
+
 // TestCLI_SuggestEmptyLibraryMatchFound verifies match_found is always present
 // (false), even with no recipes, so agents can gate on it unconditionally.
 func TestCLI_SuggestEmptyLibraryMatchFound(t *testing.T) {
