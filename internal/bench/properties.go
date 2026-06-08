@@ -165,6 +165,26 @@ func existingArtifact(root, path string) (string, bool) {
 	return path, true
 }
 
+func recordPropertyFailure(failureDir, propertyID string, payload map[string]any) (string, error) {
+	if failureDir == "" {
+		return "", nil
+	}
+	if err := os.MkdirAll(failureDir, 0o755); err != nil {
+		return "", err
+	}
+	record := make(map[string]any, len(payload)+2)
+	for k, v := range payload {
+		record[k] = v
+	}
+	record["property_id"] = propertyID
+	record["recorded_at"] = time.Now().UTC().Format(time.RFC3339)
+	path := filepath.Join(failureDir, propertyID+".json")
+	if err := writeJSON(path, record); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
 func trimDetail(s string) string {
 	lines := strings.Split(strings.TrimSpace(s), "\n")
 	if len(lines) == 0 {

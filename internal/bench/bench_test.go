@@ -1,6 +1,9 @@
 package bench
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -148,5 +151,29 @@ func TestE2E_NegativeGates(t *testing.T) {
 			!strings.Contains(strings.ToLower(r.Detail), "aborted") {
 			t.Errorf("negative-gate %s detail should reflect a withheld/aborted outcome: %q", id, r.Detail)
 		}
+	}
+}
+
+func TestRecordPropertyFailureWritesArtifact(t *testing.T) {
+	dir := t.TempDir()
+	path, err := recordPropertyFailure(dir, "PROP-demo", map[string]any{
+		"case": "minimal",
+	})
+	if err != nil {
+		t.Fatalf("recordPropertyFailure: %v", err)
+	}
+	if path != filepath.Join(dir, "PROP-demo.json") {
+		t.Errorf("artifact path = %q, want %q", path, filepath.Join(dir, "PROP-demo.json"))
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read artifact: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatalf("artifact JSON parse: %v\n%s", err, b)
+	}
+	if got["property_id"] != "PROP-demo" || got["case"] != "minimal" || got["recorded_at"] == "" {
+		t.Errorf("unexpected artifact payload: %+v", got)
 	}
 }

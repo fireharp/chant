@@ -406,13 +406,7 @@ func near(a, b float64) bool {
 }
 
 func failProperty(ht *hegel.T, propertyID string, payload map[string]any, format string, args ...any) {
-	dir := os.Getenv("CHANT_HEGEL_FAILURE_DIR")
-	if dir != "" {
-		payload["property_id"] = propertyID
-		payload["recorded_at"] = time.Now().UTC().Format(time.RFC3339)
-		_ = os.MkdirAll(dir, 0o755)
-		_ = writeJSON(filepath.Join(dir, propertyID+".json"), payload)
-	}
+	_, _ = recordPropertyFailure(os.Getenv("CHANT_HEGEL_FAILURE_DIR"), propertyID, payload)
 	ht.Fatalf(format, args...)
 }
 
