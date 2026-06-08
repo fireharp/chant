@@ -549,5 +549,7 @@ gate end to end: each recipe with a verifier and an example is run and verified,
 and is only counted as a pass when the verifier establishes trust. The
 properties suite uses Hegel under the `hegel` build tag to generate cases for
 retrieval, runner, spell-hash, and CSV recipe invariants; Hegel state is kept
-under `.chant/hegel/`. See
+under `.chant/hegel/`, with the latest report at
+`.chant/hegel/properties-report.json` and failure payloads under
+`.chant/hegel/failures/`. See
 [`internal/bench/bench.go`](internal/bench/bench.go).

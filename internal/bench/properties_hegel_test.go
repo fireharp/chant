@@ -31,19 +31,38 @@ func TestRunProperties_AllPass(t *testing.T) {
 			}
 		}
 	}
-	if sum.Suite != "properties" || sum.Total != 1 {
-		t.Errorf("summary = %+v, want one properties result", sum)
+	if sum.Suite != "properties" || sum.Total != len(PropertySpecs()) {
+		t.Errorf("summary = %+v, want %d properties results", sum, len(PropertySpecs()))
+	}
+	for _, r := range sum.Results {
+		if r.Cases == 0 {
+			t.Errorf("%s has no case count: %+v", r.ID, r)
+		}
 	}
 }
 
 func TestHegelProperties(t *testing.T) {
 	setupHegel(t)
 
-	t.Run("retrieval stale penalty", propRetrievalStalePenalty)
-	t.Run("retrieval signal monotonicity", propRetrievalSignalMonotonicity)
-	t.Run("runner trust gate", propRunnerTrustGate)
-	t.Run("spell hash stability", propSpellHashStability)
-	t.Run("csv recipe oracle", propCSVRecipeOracle)
+	for _, spec := range PropertySpecs() {
+		spec := spec
+		t.Run(spec.TestName, func(t *testing.T) {
+			switch spec.ID {
+			case "PROP-retrieval-stale-penalty":
+				propRetrievalStalePenalty(t)
+			case "PROP-retrieval-signal-monotonicity":
+				propRetrievalSignalMonotonicity(t)
+			case "PROP-runner-trust-gate":
+				propRunnerTrustGate(t)
+			case "PROP-spell-hash-stability":
+				propSpellHashStability(t)
+			case "PROP-csv-recipe-oracle":
+				propCSVRecipeOracle(t)
+			default:
+				t.Fatalf("unknown property spec %s", spec.ID)
+			}
+		})
+	}
 }
 
 func setupHegel(t *testing.T) {
@@ -54,6 +73,16 @@ func setupHegel(t *testing.T) {
 	}
 	if err := os.MkdirAll(filepath.Join(dir, "db"), 0o755); err != nil {
 		t.Fatalf("create Hegel dir: %v", err)
+	}
+	failureDir := os.Getenv("CHANT_HEGEL_FAILURE_DIR")
+	if failureDir == "" {
+		failureDir = filepath.Join(filepath.Dir(dir), "failures")
+		if err := os.Setenv("CHANT_HEGEL_FAILURE_DIR", failureDir); err != nil {
+			t.Fatalf("set Hegel failure dir: %v", err)
+		}
+	}
+	if err := os.MkdirAll(failureDir, 0o755); err != nil {
+		t.Fatalf("create Hegel failure dir: %v", err)
 	}
 	hegel.SetHegelDirectory(dir)
 }
@@ -102,10 +131,27 @@ func propRetrievalStalePenalty(t *testing.T) {
 		activeScore := retrieve.Rank([]*recipe.Recipe{active}, q, cfg)[0].Score
 		staleHit := retrieve.Rank([]*recipe.Recipe{stale}, q, cfg)[0]
 		if !near(staleHit.Score, activeScore*0.5) {
-			ht.Fatalf("stale score %.6f, active %.6f; want exact half", staleHit.Score, activeScore)
+			failProperty(ht, "PROP-retrieval-stale-penalty", map[string]any{
+				"runs":         runs,
+				"failures":     fails,
+				"task":         task,
+				"file":         file,
+				"channel":      channel,
+				"revenue":      revenue,
+				"active_score": activeScore,
+				"stale_score":  staleHit.Score,
+			}, "stale score %.6f, active %.6f; want exact half", staleHit.Score, activeScore)
 		}
 		if !hasReason(staleHit, "stale") {
-			ht.Fatalf("stale hit did not carry stale reason: %v", staleHit.Reasons)
+			failProperty(ht, "PROP-retrieval-stale-penalty", map[string]any{
+				"runs":     runs,
+				"failures": fails,
+				"task":     task,
+				"file":     file,
+				"channel":  channel,
+				"revenue":  revenue,
+				"reasons":  staleHit.Reasons,
+			}, "stale hit did not carry stale reason: %v", staleHit.Reasons)
 		}
 	}, hegelOpts(t, 50)...)
 }
@@ -132,10 +178,21 @@ func propRetrievalSignalMonotonicity(t *testing.T) {
 			Columns: []string{channel, revenue},
 		}, cfg)[0]
 		if matched.Score < base.Score {
-			ht.Fatalf("matching structural signals lowered score: base %.6f matched %.6f", base.Score, matched.Score)
+			failProperty(ht, "PROP-retrieval-signal-monotonicity", map[string]any{
+				"channel":       channel,
+				"revenue":       revenue,
+				"file":          file,
+				"base_score":    base.Score,
+				"matched_score": matched.Score,
+			}, "matching structural signals lowered score: base %.6f matched %.6f", base.Score, matched.Score)
 		}
 		if matched.SignalMatch != 1.0 {
-			ht.Fatalf("matching file+columns signal = %.2f, want 1.0", matched.SignalMatch)
+			failProperty(ht, "PROP-retrieval-signal-monotonicity", map[string]any{
+				"channel":      channel,
+				"revenue":      revenue,
+				"file":         file,
+				"signal_match": matched.SignalMatch,
+			}, "matching file+columns signal = %.2f, want 1.0", matched.SignalMatch)
 		}
 
 		unsatisfied := retrieve.Rank([]*recipe.Recipe{r}, retrieve.Query{
@@ -143,10 +200,18 @@ func propRetrievalSignalMonotonicity(t *testing.T) {
 			Columns: []string{badA, badB},
 		}, cfg)[0]
 		if unsatisfied.SignalMatch != 0 {
-			ht.Fatalf("unsatisfied columns earned signal %.2f", unsatisfied.SignalMatch)
+			failProperty(ht, "PROP-retrieval-signal-monotonicity", map[string]any{
+				"bad_columns":   []string{badA, badB},
+				"signal_match":  unsatisfied.SignalMatch,
+				"matched_score": unsatisfied.Score,
+			}, "unsatisfied columns earned signal %.2f", unsatisfied.SignalMatch)
 		}
 		if !near(unsatisfied.Score, base.Score) {
-			ht.Fatalf("unsatisfied columns changed lexical-only score: base %.6f unsatisfied %.6f", base.Score, unsatisfied.Score)
+			failProperty(ht, "PROP-retrieval-signal-monotonicity", map[string]any{
+				"bad_columns":       []string{badA, badB},
+				"base_score":        base.Score,
+				"unsatisfied_score": unsatisfied.Score,
+			}, "unsatisfied columns changed lexical-only score: base %.6f unsatisfied %.6f", base.Score, unsatisfied.Score)
 		}
 	}, hegelOpts(t, 50)...)
 }
@@ -185,11 +250,25 @@ func propRunnerTrustGate(t *testing.T) {
 
 		res, trusted, err := runner.Verify(rc, nil, 5*time.Second)
 		if err != nil {
-			ht.Fatalf("Verify returned command-level error: %v", err)
+			failProperty(ht, "PROP-runner-trust-gate", map[string]any{
+				"verifier_passes":   verifierPasses,
+				"artifact_declared": artifactDeclared,
+				"artifact_exists":   artifactExists,
+				"error":             err.Error(),
+			}, "Verify returned command-level error: %v", err)
 		}
 		want := verifierPasses && (!artifactDeclared || artifactExists)
 		if trusted != want {
-			ht.Fatalf("trusted=%v, want %v (verifierPasses=%v artifactDeclared=%v artifactExists=%v res=%+v)",
+			failProperty(ht, "PROP-runner-trust-gate", map[string]any{
+				"verifier_passes":   verifierPasses,
+				"artifact_declared": artifactDeclared,
+				"artifact_exists":   artifactExists,
+				"trusted":           trusted,
+				"want":              want,
+				"exit_code":         res.ExitCode,
+				"stdout":            res.Stdout,
+				"stderr":            res.Stderr,
+			}, "trusted=%v, want %v (verifierPasses=%v artifactDeclared=%v artifactExists=%v res=%+v)",
 				trusted, want, verifierPasses, artifactDeclared, artifactExists, res)
 		}
 	}, hegelOpts(t, 50)...)
@@ -221,7 +300,16 @@ func propSpellHashStability(t *testing.T) {
 			Portability: recipe.Portability{InputContract: recipe.InputContract{RequiredColumnsAny: colsB}},
 		}
 		if a.ComputeSpellHash() != b.ComputeSpellHash() {
-			ht.Fatalf("equivalent spell hashes differed: %s != %s", a.ComputeSpellHash(), b.ComputeSpellHash())
+			failProperty(ht, "PROP-spell-hash-stability", map[string]any{
+				"placeholder_a": aName,
+				"placeholder_b": bName,
+				"swap_groups":   swapGroups,
+				"swap_aliases":  swapAliases,
+				"columns_a":     colsA,
+				"columns_b":     colsB,
+				"hash_a":        a.ComputeSpellHash(),
+				"hash_b":        b.ComputeSpellHash(),
+			}, "equivalent spell hashes differed: %s != %s", a.ComputeSpellHash(), b.ComputeSpellHash())
 		}
 	}, hegelOpts(t, 50)...)
 }
@@ -245,10 +333,21 @@ func propCSVRecipeOracle(t *testing.T) {
 
 		got, err := runCSVRecipe(root, channelCol, revenueCol, rows)
 		if err != nil {
-			ht.Fatalf("run csv recipe: %v", err)
+			failProperty(ht, "PROP-csv-recipe-oracle", map[string]any{
+				"channel_column": channelCol,
+				"revenue_column": revenueCol,
+				"rows":           rows,
+				"error":          err.Error(),
+			}, "run csv recipe: %v", err)
 		}
 		if !mapsNear(got, want) {
-			ht.Fatalf("csv totals mismatch:\n got=%v\nwant=%v\nrows=%+v", got, want, rows)
+			failProperty(ht, "PROP-csv-recipe-oracle", map[string]any{
+				"channel_column": channelCol,
+				"revenue_column": revenueCol,
+				"rows":           rows,
+				"got":            got,
+				"want":           want,
+			}, "csv totals mismatch:\n got=%v\nwant=%v\nrows=%+v", got, want, rows)
 		}
 
 		reversed := append([]csvPropRow(nil), rows...)
@@ -257,10 +356,21 @@ func propCSVRecipeOracle(t *testing.T) {
 		}
 		gotReversed, err := runCSVRecipe(root, channelCol, revenueCol, reversed)
 		if err != nil {
-			ht.Fatalf("run reversed csv recipe: %v", err)
+			failProperty(ht, "PROP-csv-recipe-oracle", map[string]any{
+				"channel_column": channelCol,
+				"revenue_column": revenueCol,
+				"rows":           reversed,
+				"error":          err.Error(),
+			}, "run reversed csv recipe: %v", err)
 		}
 		if !mapsNear(gotReversed, want) {
-			ht.Fatalf("csv totals changed under row reversal:\n got=%v\nwant=%v\nrows=%+v", gotReversed, want, reversed)
+			failProperty(ht, "PROP-csv-recipe-oracle", map[string]any{
+				"channel_column": channelCol,
+				"revenue_column": revenueCol,
+				"rows":           reversed,
+				"got":            gotReversed,
+				"want":           want,
+			}, "csv totals changed under row reversal:\n got=%v\nwant=%v\nrows=%+v", gotReversed, want, reversed)
 		}
 	}, hegelOpts(t, 25)...)
 }
@@ -293,6 +403,17 @@ func hasReason(m retrieve.Match, needle string) bool {
 
 func near(a, b float64) bool {
 	return math.Abs(a-b) < 1e-9
+}
+
+func failProperty(ht *hegel.T, propertyID string, payload map[string]any, format string, args ...any) {
+	dir := os.Getenv("CHANT_HEGEL_FAILURE_DIR")
+	if dir != "" {
+		payload["property_id"] = propertyID
+		payload["recorded_at"] = time.Now().UTC().Format(time.RFC3339)
+		_ = os.MkdirAll(dir, 0o755)
+		_ = writeJSON(filepath.Join(dir, propertyID+".json"), payload)
+	}
+	ht.Fatalf(format, args...)
 }
 
 type csvPropRow struct {

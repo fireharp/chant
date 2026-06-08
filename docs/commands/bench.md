@@ -20,8 +20,10 @@ suite is opt-in because it starts the Hegel runtime.
   are skipped (reported as a pass with a skip note) so the suite stays green on
   a fresh library.
 - **`properties`** — runs build-tagged Hegel property tests for retrieval,
-  runner trust, spell hashes, and the CSV recipe oracle. This suite uses
-  `.chant/hegel/` for Hegel state and may use Python/`uv` to start
+  runner trust, spell hashes, and the CSV recipe oracle. Results are reported
+  per property with a `cases` count, and `.chant/hegel/properties-report.json`
+  preserves the latest report. On failure, generated-case evidence is written
+  under `.chant/hegel/failures/`. The suite may use Python/`uv` to start
   `hegel-core` unless `HEGEL_SERVER_COMMAND` is set.
 
 ## Flags
@@ -94,8 +96,9 @@ chant bench --json
 
 A top-level `{summaries[], failed}`. Each `Summary` carries `suite`, `total`,
 `passed`, `failed`, and `results[]`; each `Result` carries `id`, `name`,
-`suite`, `pass`, and a `detail` string. `failed` is the total failed across all
-suites; a non-zero value makes `chant bench` exit `1`.
+`suite`, `pass`, and a `detail` string. Property results may also carry
+`cases` and `failure_artifact`. `failed` is the total failed across all suites;
+a non-zero value makes `chant bench` exit `1`.
 
 The opt-in property suite has the same top-level JSON shape:
 
@@ -109,11 +112,15 @@ chant bench --suite=properties --json
   "summaries": [
     {
       "suite": "properties",
-      "total": 1,
-      "passed": 1,
+      "total": 5,
+      "passed": 5,
       "failed": 0,
       "results": [
-        {"id": "PROP-HEGEL", "name": "Hegel generative verifier properties", "suite": "properties", "pass": true, "detail": "Hegel property tests passed"}
+        {"id": "PROP-retrieval-stale-penalty", "name": "retrieval stale penalty", "suite": "properties", "pass": true, "detail": "Hegel property passed", "cases": 50},
+        {"id": "PROP-retrieval-signal-monotonicity", "name": "retrieval signal monotonicity", "suite": "properties", "pass": true, "detail": "Hegel property passed", "cases": 50},
+        {"id": "PROP-runner-trust-gate", "name": "runner trust gate", "suite": "properties", "pass": true, "detail": "Hegel property passed", "cases": 50},
+        {"id": "PROP-spell-hash-stability", "name": "spell hash stability", "suite": "properties", "pass": true, "detail": "Hegel property passed", "cases": 50},
+        {"id": "PROP-csv-recipe-oracle", "name": "CSV recipe oracle", "suite": "properties", "pass": true, "detail": "Hegel property passed", "cases": 25}
       ]
     }
   ]
@@ -129,4 +136,8 @@ chant bench --suite=properties --json
 | `RET-003` | a chargeback/refund task routes to `refund-chargeback-threat`. |
 | `RET-004` | column signals disambiguate revenue from a normalize recipe. |
 | `E2E-<id>` | each recipe with a verifier + example runs and verifies, and is trusted only on a passing verifier. |
-| `PROP-HEGEL` | Hegel generates cases for retrieval, runner, spell-hash, and CSV oracle properties. |
+| `PROP-retrieval-stale-penalty` | Hegel generates cases proving stale recipes score exactly half and carry a stale warning. |
+| `PROP-retrieval-signal-monotonicity` | Hegel generates matching and unsatisfied structural signals and checks score behavior. |
+| `PROP-runner-trust-gate` | Hegel generates verifier/artifact combinations and checks trust is granted only through the gate. |
+| `PROP-spell-hash-stability` | Hegel generates equivalent commands and column orderings and checks `spell_hash` stability. |
+| `PROP-csv-recipe-oracle` | Hegel generates CSV rows/aliases and compares the recipe output to an independent oracle. |

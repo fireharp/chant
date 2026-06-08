@@ -138,7 +138,8 @@ runs the two fast compatibility suites:
 - **e2e** — runs each recipe's procedure + verifier and asserts the
   verifier-first gate (trusted only after the verifier passes).
 - **properties** — opt-in Hegel property tests for retrieval, runner,
-  spell-hash, and CSV recipe invariants.
+  spell-hash, and CSV recipe invariants, with per-property case counts and
+  `.chant/hegel/` evidence files.
 
 ```bash
 chant bench --suite=all

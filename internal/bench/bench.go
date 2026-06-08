@@ -27,11 +27,13 @@ import (
 
 // Result is one scenario outcome.
 type Result struct {
-	ID     string `json:"id"`
-	Name   string `json:"name"`
-	Suite  string `json:"suite"`
-	Pass   bool   `json:"pass"`
-	Detail string `json:"detail"`
+	ID              string `json:"id"`
+	Name            string `json:"name"`
+	Suite           string `json:"suite"`
+	Pass            bool   `json:"pass"`
+	Detail          string `json:"detail"`
+	Cases           int    `json:"cases,omitempty"`
+	FailureArtifact string `json:"failure_artifact,omitempty"`
 }
 
 // Summary aggregates a bench run.

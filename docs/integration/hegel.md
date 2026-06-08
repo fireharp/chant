@@ -39,9 +39,34 @@ fast and does not run Hegel. The property suite runs build-tagged tests with:
 go test -tags hegel ./internal/bench -run TestHegelProperties -count=1
 ```
 
-The suite covers retrieval stale penalties and structural signals, runner trust
-gates, `spell_hash` stability, and the CSV recipe against a generated-input
-oracle.
+`chant bench --suite=properties --json` reports each property separately,
+including its generated case count. It also writes the latest evidence summary
+to `.chant/hegel/properties-report.json`.
+
+The suite covers:
+
+- `PROP-retrieval-stale-penalty` — 50 cases.
+- `PROP-retrieval-signal-monotonicity` — 50 cases.
+- `PROP-runner-trust-gate` — 50 cases.
+- `PROP-spell-hash-stability` — 50 cases.
+- `PROP-csv-recipe-oracle` — 25 cases.
+
+On failure, the Hegel test writes the generated case payload to
+`.chant/hegel/failures/<property-id>.json`. Hegel's own shrunk failure output is
+still emitted through `go test`; the chant artifact preserves the generated
+case data that caused the property to fail.
+
+## Hermetic CI
+
+Keep Hegel opt-in. For CI, preinstall the matching `hegel-core` binary and wire
+the command explicitly rather than relying on runtime `uv` installation:
+
+```yaml
+- name: Hegel properties
+  run: chant bench --suite=properties --json
+  env:
+    HEGEL_SERVER_COMMAND: /path/to/preinstalled/hegel
+```
 
 ## Runtime notes
 
